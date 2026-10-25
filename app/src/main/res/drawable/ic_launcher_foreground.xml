@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original Nexa Browser mark: an abstract "N" inside a glass bubble.
+     Not derived from Apple or Safari assets. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#2F6BFF"
+        android:pathData="M54,26 C70.6,26 84,39.4 84,56 C84,72.6 70.6,86 54,86 C37.4,86 24,72.6 24,56 C24,39.4 37.4,26 54,26 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,72 L40,42 L45.5,42 L62.5,62 L62.5,42 L68,42 L68,72 L62.5,72 L45.5,52 L45.5,72 Z" />
+    <path
+        android:fillColor="#8FC0FF"
+        android:fillAlpha="0.55"
+        android:pathData="M54,26 C70.6,26 84,39.4 84,56 C84,60 83,63.8 81.3,67.2 C74,62 64.6,59 54,59 C43.4,59 34,62 26.7,67.2 C25,63.8 24,60 24,56 C24,39.4 37.4,26 54,26 Z" />
+</vector>
