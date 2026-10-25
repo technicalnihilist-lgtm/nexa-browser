@@ -1,7 +1,9 @@
 package com.nexabrowser.app.ui.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,18 +21,21 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,13 +57,19 @@ data class DockAction(
 )
 
 /**
- * The bottom dock, built the way the reference animation works.
+ * The bottom dock, built the way the reference design works.
  *
- * A single glass capsule carries the "active" slot. When the active slot
- * changes the capsule travels to it on a spring, and while it is in motion its
- * width grows in proportion to the distance still to travel — so it stretches
- * like a pulled droplet and settles back to rest. That stretch is the whole
- * effect: it is derived from the remaining distance, not a second animation.
+ * Two things move together:
+ *  * a soft capsule that glides between slots on a spring and stretches in
+ *    proportion to the distance still to travel — the "liquid" part;
+ *  * a **glass lens** that rides on top of the row, so the active icon is seen
+ *    *through* it, enlarged and brightened, with a chromatic fringe on the rim.
+ *    That is the iOS 26 lens effect: the glass does not sit behind the content,
+ *    it sits in front of it.
+ *
+ * Real optical refraction is not available to Compose, so the lens magnifies by
+ * scaling the active icon and brightening it through a translucent pane rather
+ * than sampling the backdrop.
  */
 @Composable
 fun LiquidGlassDock(
@@ -98,7 +109,9 @@ fun LiquidGlassDock(
             val capsuleWidth = slotWidth * (0.84f + stretch)
             val centreX = slotWidth * (position.value + 0.5f)
 
-            // The capsule is drawn first, so the icons sit on top of it.
+            val lensSize = minOf(slotWidth * 0.98f, maxHeight)
+
+            // 1. The soft travelling capsule, behind the icons.
             Box(
                 Modifier
                     .offset(x = centreX - capsuleWidth / 2)
@@ -108,7 +121,6 @@ fun LiquidGlassDock(
                     .background(capsuleFill)
                     .border(0.8.dp, capsuleBorder, RoundedCornerShape(21.dp))
             ) {
-                // Lit lip of the glass.
                 Box(
                     Modifier
                         .align(Alignment.TopCenter)
@@ -126,6 +138,7 @@ fun LiquidGlassDock(
                 )
             }
 
+            // 2. The controls.
             Row(Modifier.fillMaxSize()) {
                 actions.forEachIndexed { index, action ->
                     val selected = index == target
@@ -134,6 +147,11 @@ fun LiquidGlassDock(
                         selected -> contentColor
                         else -> secondaryColor
                     }
+                    val iconScale by animateFloatAsState(
+                        targetValue = if (selected) 1.24f else 1f,
+                        animationSpec = spring(dampingRatio = 0.62f, stiffness = 420f),
+                        label = "dockIconScale"
+                    )
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -147,7 +165,12 @@ fun LiquidGlassDock(
                             imageVector = action.icon,
                             contentDescription = action.label,
                             tint = tint,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier
+                                .size(19.dp)
+                                .graphicsLayer {
+                                    scaleX = iconScale
+                                    scaleY = iconScale
+                                }
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
@@ -159,6 +182,45 @@ fun LiquidGlassDock(
                         )
                     }
                 }
+            }
+
+            // 3. The lens, in front of everything, magnifying the active slot.
+            Box(
+                Modifier
+                    .offset(x = centreX - lensSize / 2)
+                    .size(lensSize)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.26f),
+                                Color.White.copy(alpha = 0.08f),
+                                Color.White.copy(alpha = 0.20f)
+                            )
+                        )
+                    )
+                    .border(
+                        BorderStroke(
+                            1.2.dp,
+                            Brush.linearGradient(
+                                listOf(
+                                    Color(0x66A8E6FF),
+                                    Color(0x73FFFFFF),
+                                    Color(0x4D9B7BFF)
+                                )
+                            )
+                        ),
+                        CircleShape
+                    )
+            ) {
+                // Specular catchlight, upper left.
+                Box(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = lensSize * 0.16f, top = lensSize * 0.13f)
+                        .size(lensSize * 0.20f)
+                        .background(Color.White.copy(alpha = 0.55f), CircleShape)
+                )
             }
         }
     }

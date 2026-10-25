@@ -87,6 +87,23 @@ fun GlassSurface(
             .background(specular)
             .border(BorderStroke(0.75.dp, border), shape)
             .border(BorderStroke(1.dp, rim), shape)
+            // Chromatic dispersion: a very faint cyan-to-violet fringe where the
+            // pane bends light, as the reference design shows on glass edges.
+            .border(
+                BorderStroke(
+                    0.9.dp,
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0x2E7FD4FF),
+                            Color(0x00FFFFFF),
+                            Color(0x26C79BFF)
+                        ),
+                        start = Offset.Zero,
+                        end = Offset.Infinite
+                    )
+                ),
+                shape
+            )
     ) {
         // Top inner highlight — the lit lip of the glass.
         Box(

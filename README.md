@@ -31,10 +31,14 @@ state, persists real history and bookmarks, and downloads real files.
   HTTPS, warning for HTTP, private glyph in private tabs).
 * Error and offline states rendered as a glass overlay instead of a blank page.
 * Find on page, share, copy link, and a per-tab "request desktop site" toggle.
-* A **liquid-glass dock** at the bottom: one glass capsule carries the active
-  slot and, when the active slot changes, it glides there on a spring while
-  stretching in proportion to the distance still to travel, then settles. Each
-  control has an icon and a label, as in the reference animation.
+* A **liquid-glass dock** at the bottom, built on the iOS 26 model. A soft
+  capsule glides between slots on a spring and stretches in proportion to the
+  distance still to travel; a **glass lens then rides on top of the row**, so the
+  active icon is seen *through* it — enlarged, brightened, with a chromatic
+  fringe on the rim. Each control has an icon and a label.
+* The start-page clock is drawn as **translucent glass numerals** (a light rim
+  plus a filled gradient) whenever a wallpaper is set, the way the lock screen
+  does it.
 * Keyboard-aware address input (the bar lifts with the IME).
 
 ### Search engines

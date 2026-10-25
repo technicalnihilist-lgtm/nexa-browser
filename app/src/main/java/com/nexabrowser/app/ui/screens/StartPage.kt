@@ -41,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -122,14 +124,45 @@ fun StartPage(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(
-                            timeFmt.format(now),
-                            style = MaterialTheme.typography.headlineSmall.copy(
-                                fontSize = MaterialTheme.typography.headlineSmall.fontSize * 2.2f
-                            ),
-                            fontWeight = FontWeight.Light,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
+                        val clockSize = MaterialTheme.typography.headlineSmall.fontSize * 2.2f
+                        if (backgroundId.isNotBlank()) {
+                            // Over a wallpaper the clock is drawn as translucent
+                            // glass: a light rim plus a filled gradient.
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    timeFmt.format(now),
+                                    style = TextStyle(
+                                        fontSize = clockSize,
+                                        fontWeight = FontWeight.Light,
+                                        brush = Brush.verticalGradient(
+                                            listOf(Color(0x59FFFFFF), Color(0x22FFFFFF))
+                                        ),
+                                        drawStyle = Stroke(width = 2f)
+                                    )
+                                )
+                                Text(
+                                    timeFmt.format(now),
+                                    style = TextStyle(
+                                        fontSize = clockSize,
+                                        fontWeight = FontWeight.Light,
+                                        brush = Brush.verticalGradient(
+                                            listOf(
+                                                Color(0xF2FFFFFF),
+                                                Color(0x8CFFFFFF),
+                                                Color(0x66FFFFFF)
+                                            )
+                                        )
+                                    )
+                                )
+                            }
+                        } else {
+                            Text(
+                                timeFmt.format(now),
+                                style = MaterialTheme.typography.headlineSmall.copy(fontSize = clockSize),
+                                fontWeight = FontWeight.Light,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
                         Text(
                             dateFmt.format(now),
                             style = MaterialTheme.typography.bodyMedium,
