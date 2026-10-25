@@ -218,3 +218,20 @@ fun barChromeColor(style: AddressBarStyle): Color = when {
     style == AddressBarStyle.SOLID_THEME -> MaterialTheme.colorScheme.background
     else -> Color(0xFFF1F3F7)
 }
+
+/** True when the bars render as the frosted pane for the active theme. */
+@Composable
+fun barIsGlass(style: AddressBarStyle): Boolean = barUsesGlass(style)
+
+/**
+ * Fill and border for the sliding capsule in the dock. On a white bar the
+ * capsule is a soft tinted pane; on glass it is a brighter translucent pane.
+ */
+@Composable
+fun dockCapsuleColors(style: AddressBarStyle): Pair<Color, Color> = when {
+    barUsesGlass(style) -> Color(0x33FFFFFF) to Color(0x4DFFFFFF)
+    style == AddressBarStyle.SOLID_THEME ->
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) to
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
+    else -> Color(0xFFE7EDF9) to Color(0x16000000)
+}

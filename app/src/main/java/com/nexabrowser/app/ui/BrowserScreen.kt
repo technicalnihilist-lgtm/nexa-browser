@@ -25,6 +25,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
 import com.nexabrowser.app.ui.theme.NexaIcons
 import androidx.compose.material3.Icon
@@ -34,6 +39,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -46,7 +55,8 @@ import com.nexabrowser.app.domain.model.HistoryEntry
 import com.nexabrowser.app.domain.model.Shortcut
 import com.nexabrowser.app.domain.model.TopSite
 import com.nexabrowser.app.ui.components.AddressBar
-import com.nexabrowser.app.ui.components.BottomToolbar
+import com.nexabrowser.app.ui.components.DockAction
+import com.nexabrowser.app.ui.components.LiquidGlassDock
 import com.nexabrowser.app.ui.components.WebViewHost
 import com.nexabrowser.app.ui.screens.StartPage
 import com.nexabrowser.app.ui.theme.GlassSurface
@@ -72,13 +82,16 @@ fun BrowserScreen(
     onShare: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // Which dock slot the glass capsule rests on; it glides when this changes.
+    var dockIndex by remember { mutableStateOf(0) }
+
     val activeWebView = viewModel.tabManager.activeTab()?.webView
 
     // The page is inset by the chrome height so a site's own header can never
     // sit underneath the address bar (which reads as a second search bar).
     val systemInsets = WindowInsets.systemBars.asPaddingValues()
     val chromeTop = systemInsets.calculateTopPadding() + 68.dp
-    val chromeBottom = systemInsets.calculateBottomPadding() + 72.dp
+    val chromeBottom = systemInsets.calculateBottomPadding() + 82.dp
 
     Box(modifier.fillMaxSize()) {
         // ---- Page content -------------------------------------------------
@@ -152,18 +165,34 @@ fun BrowserScreen(
         }
 
         // ---- Bottom: toolbar ---------------------------------------------
-        BottomToolbar(
-            canGoBack = activeTab?.canGoBack == true,
-            canGoForward = activeTab?.canGoForward == true,
-            isBookmarked = isBookmarked,
-            tabCount = tabCount,
+        LiquidGlassDock(
+            activeIndex = dockIndex,
             style = settings.addressBarStyle,
-            onBack = { viewModel.goBack() },
-            onForward = { viewModel.goForward() },
-            onShare = onShare,
-            onBookmark = viewModel::toggleBookmark,
-            onTabs = { viewModel.setScreen(NexaScreen.TABS) },
-            onMenu = viewModel::openMenu,
+            actions = listOf(
+                DockAction(
+                    label = "Back",
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    enabled = activeTab?.canGoBack == true
+                ) { dockIndex = 0; viewModel.goBack() },
+                DockAction(
+                    label = "Next",
+                    icon = Icons.AutoMirrored.Filled.ArrowForward,
+                    enabled = activeTab?.canGoForward == true
+                ) { dockIndex = 1; viewModel.goForward() },
+                DockAction(label = "Share", icon = Icons.Filled.Share) {
+                    dockIndex = 2; onShare()
+                },
+                DockAction(
+                    label = if (isBookmarked) "Saved" else "Save",
+                    icon = if (isBookmarked) Icons.Filled.Star else NexaIcons.StarBorder
+                ) { dockIndex = 3; viewModel.toggleBookmark() },
+                DockAction(label = "Tabs", icon = NexaIcons.Tab) {
+                    dockIndex = 4; viewModel.setScreen(NexaScreen.TABS)
+                },
+                DockAction(label = "More", icon = Icons.Filled.Menu) {
+                    dockIndex = 5; viewModel.openMenu()
+                }
+            ),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
