@@ -111,6 +111,24 @@ Every setting on the screen changes real behaviour:
 
 ---
 
+## Screens
+
+These images are **UI renders** produced from the same design tokens, sizes and
+strings as the app, drawn on the build machine. No emulator can run in the build
+sandbox (the host has no KVM), so they are not photographs of a device. Install
+the APK to see the real thing.
+
+| | |
+|---|---|
+| ![Start page](screenshots/01-start-page.png) | ![Browsing](screenshots/02-browsing-liquid-glass.png) |
+| **Start page** — clock, user favourites, frequently visited from real history | **Browsing** — Liquid Glass bars floating over a live page |
+| ![Tab switcher](screenshots/03-tab-switcher.png) | ![Private](screenshots/04-private-browsing.png) |
+| **Tab switcher** — card per tab, live title and favicon | **Private browsing** — distinct dark palette and honest notice |
+| ![History](screenshots/05-history-swipe-to-delete.png) | ![Settings](screenshots/06-settings.png) |
+| **History** — swipe a row right to delete it | **Settings** — every option changes real behaviour |
+
+---
+
 ## Project layout
 
 ```
