@@ -150,11 +150,13 @@ the APK to see the real thing.
 | | |
 |---|---|
 | ![Start page](screenshots/01-start-page.png) | ![Browsing](screenshots/02-browsing-liquid-glass.png) |
-| **Start page** — clock, user favourites, frequently visited from real history | **Browsing** — Liquid Glass bars floating over a live page |
+| **Start page** — clock, favourites, frequently visited from real history | **Browsing** — Liquid Glass bars, page inset below the chrome |
 | ![Tab switcher](screenshots/03-tab-switcher.png) | ![Private](screenshots/04-private-browsing.png) |
-| **Tab switcher** — card per tab, live title and favicon | **Private browsing** — distinct dark palette and honest notice |
+| **Tab switcher** — card per tab, live title and load state | **Private browsing** — distinct dark palette and honest notice |
 | ![History](screenshots/05-history-swipe-to-delete.png) | ![Settings](screenshots/06-settings.png) |
 | **History** — swipe a row right to delete it | **Settings** — every option changes real behaviour |
+| ![Extensions](screenshots/07-extensions.png) | |
+| **Extensions** — ad blocker, HTTPS, dark pages, data saver, Theme Studio | |
 
 The renders include the opaque chrome strip and the inset page, matching the app.
 
