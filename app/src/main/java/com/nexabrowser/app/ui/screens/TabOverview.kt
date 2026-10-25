@@ -218,6 +218,21 @@ private fun TabCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    when {
+                        tab.error != null -> "Couldn't load"
+                        tab.isLoading -> "Loading…"
+                        else -> "Loaded"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (tab.error != null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                    },
+                    maxLines = 1
+                )
             }
         }
     }

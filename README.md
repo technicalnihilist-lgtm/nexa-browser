@@ -87,7 +87,7 @@ Every setting on the screen changes real behaviour:
 | Do Not Track | Injects a `navigator.doNotTrack` shim into each page |
 | Restore tabs on start | Gates session restore |
 | Start-page clock / background | Changes the start page |
-| Address Bar Style | Liquid Glass (default), solid light (black on white), or solid themed |
+| Address Bar Style | Liquid Glass (default: white bar in light mode, frosted pane in dark), solid light, or solid themed |
 | Download over Wi-Fi only | Sets `setAllowedOverMetered(false)` |
 | Download notifications | Switches the DownloadManager notification visibility |
 | Clear history / cache / cookies / website data | Calls the matching platform API |
@@ -263,6 +263,8 @@ lot of memory per tab.
 ### Chrome and the page
 The bars sit on an **opaque chrome strip** and the page is **inset** by the
 chrome height, so a site's own header can never run underneath the address bar.
+The app draws exactly one search/address bar; a site's own search field is page
+content and sits cleanly below the chrome.
 That was the cause of the "two search bars" look: before, a page like a Google
 results page rendered its own search field directly behind the floating bar.
 
@@ -271,8 +273,10 @@ page content and is not removable — it now sits cleanly below the chrome inste
 of behind it.
 
 ### Glass and backdrop blur
-Settings offers three bar styles: **Liquid Glass** (the default), Solid light
-(black on white) and Solid themed.
+Settings offers three bar styles. **Liquid Glass** is the default and resolves
+against the theme: an opaque white bar with black text in light mode, and the
+frosted pane in dark mode — which is what the design renders show. Solid light
+(always black on white) and Solid themed are also available.
 
 The Liquid Glass pane is a five-layer composite — a three-stop body gradient, a
 diagonal specular sheen, a rim-light border, a lit top lip and a shaded bottom

@@ -111,9 +111,10 @@ fun HistoryScreen(
                 modifier = Modifier.weight(1f)
             )
         } else {
+            Box(Modifier.fillMaxSize()) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 32.dp)
+                contentPadding = PaddingValues(bottom = 72.dp)
             ) {
                 grouped.forEach { (day, entries) ->
                     item(key = "header-$day") {
@@ -133,6 +134,13 @@ fun HistoryScreen(
                         )
                     }
                 }
+            }
+            Text(
+                "Swipe a row right to delete it",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 26.dp)
+            )
             }
         }
     }

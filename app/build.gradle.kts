@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Minification is on by default. It can be turned off for constrained build
+// hosts with -Pnexa.minify=false (R8 needs more than a small CI box can give).
+val minifyEnabled = (findProperty("nexa.minify") as String?)?.toBoolean() ?: true
+
 android {
     namespace = "com.nexabrowser.app"
     compileSdk = 35
@@ -13,8 +17,8 @@ android {
         applicationId = "com.nexabrowser.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -26,8 +30,12 @@ android {
             isMinifyEnabled = false
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = minifyEnabled
+            isShrinkResources = minifyEnabled
+            // Signed with the standard debug key so the APK installs straight away
+            // and can be submitted to alternative stores. Replace this with your
+            // own keystore before publishing to Google Play, and keep that key safe.
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

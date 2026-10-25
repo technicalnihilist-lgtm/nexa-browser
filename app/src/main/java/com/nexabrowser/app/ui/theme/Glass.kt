@@ -140,12 +140,15 @@ fun Modifier.backdropBlur(active: Boolean, radius: Dp = 18.dp): Modifier =
         this
     }
 
+/** True when the bar should render as the frosted pane for the active theme. */
+@Composable
+private fun barUsesGlass(style: AddressBarStyle): Boolean =
+    style == AddressBarStyle.LIQUID_GLASS && LocalNexaColors.current.isDark
+
 /**
- * The surface used by the address bar and the bottom toolbar.
- *
- * A translucent bar over a dark page reads as "invisible", so the default is an
- * opaque surface with fully contrasting content. Users who prefer the original
- * frosted look can pick GLASS in Settings.
+ * The surface used by the address bar and the bottom toolbar. The style is
+ * resolved against the theme, so the default is a crisp white bar in light mode
+ * and the liquid-glass pane in dark mode.
  */
 @Composable
 fun BarSurface(
@@ -155,43 +158,21 @@ fun BarSurface(
     elevation: Dp = 12.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
-    when (style) {
-        AddressBarStyle.GLASS -> GlassSurface(
-            modifier = modifier,
-            shape = shape,
-            elevation = elevation,
-            content = content
-        )
-
-        AddressBarStyle.LIGHT -> SolidBarSurface(
-            modifier = modifier,
-            shape = shape,
-            elevation = elevation,
-            background = Color(0xFFFFFFFF),
-            border = Color(0x24000000),
-            content = content
-        )
-
-        AddressBarStyle.AUTOMATIC -> SolidBarSurface(
-            modifier = modifier,
-            shape = shape,
-            elevation = elevation,
-            background = MaterialTheme.colorScheme.surfaceVariant,
-            border = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
-            content = content
-        )
+    if (barUsesGlass(style)) {
+        GlassSurface(modifier = modifier, shape = shape, elevation = elevation, content = content)
+        return
     }
-}
 
-@Composable
-private fun SolidBarSurface(
-    modifier: Modifier,
-    shape: Shape,
-    elevation: Dp,
-    background: Color,
-    border: Color,
-    content: @Composable BoxScope.() -> Unit
-) {
+    val background = when (style) {
+        AddressBarStyle.SOLID_THEME -> MaterialTheme.colorScheme.surfaceVariant
+        else -> Color(0xFFFFFFFF)
+    }
+    val border = if (background == Color(0xFFFFFFFF)) {
+        Color(0x24000000)
+    } else {
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+    }
+
     Box(
         modifier = modifier
             .shadow(elevation, shape, clip = false)
@@ -204,24 +185,26 @@ private fun SolidBarSurface(
 
 /** Foreground colour for content drawn on a bar of the given [style]. */
 @Composable
-fun barContentColor(style: AddressBarStyle): Color = when (style) {
-    AddressBarStyle.LIGHT -> Color(0xFF111214)
-    AddressBarStyle.AUTOMATIC, AddressBarStyle.GLASS -> MaterialTheme.colorScheme.onSurface
+fun barContentColor(style: AddressBarStyle): Color = when {
+    barUsesGlass(style) -> MaterialTheme.colorScheme.onSurface
+    style == AddressBarStyle.SOLID_THEME -> MaterialTheme.colorScheme.onSurfaceVariant
+    else -> Color(0xFF111214)
 }
 
 /** Dimmed foreground colour (hints, placeholders, disabled controls) for a bar. */
 @Composable
-fun barSecondaryColor(style: AddressBarStyle): Color = when (style) {
-    AddressBarStyle.LIGHT -> Color(0xFF5B6069)
-    AddressBarStyle.AUTOMATIC, AddressBarStyle.GLASS -> MaterialTheme.colorScheme.onSurfaceVariant
+fun barSecondaryColor(style: AddressBarStyle): Color = when {
+    barUsesGlass(style) || style == AddressBarStyle.SOLID_THEME ->
+        MaterialTheme.colorScheme.onSurfaceVariant
+    else -> Color(0xFF5B6069)
 }
 
 /** Hairline/border colour for a bar, used by the loading indicator track. */
 @Composable
-fun barBorderColor(style: AddressBarStyle): Color = when (style) {
-    AddressBarStyle.LIGHT -> Color(0x1F000000)
-    AddressBarStyle.AUTOMATIC -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    AddressBarStyle.GLASS -> LocalNexaColors.current.glassBorder
+fun barBorderColor(style: AddressBarStyle): Color = when {
+    barUsesGlass(style) -> LocalNexaColors.current.glassBorder
+    style == AddressBarStyle.SOLID_THEME -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+    else -> Color(0x1F000000)
 }
 
 /**
@@ -230,8 +213,8 @@ fun barBorderColor(style: AddressBarStyle): Color = when (style) {
  * read as deliberate rather than as a gap.
  */
 @Composable
-fun barChromeColor(style: AddressBarStyle): Color = when (style) {
-    AddressBarStyle.LIGHT -> Color(0xFFF1F3F7)
-    AddressBarStyle.AUTOMATIC -> MaterialTheme.colorScheme.background
-    AddressBarStyle.GLASS -> if (LocalNexaColors.current.isDark) Color(0xFF0F1114) else Color(0xFFF1F3F7)
+fun barChromeColor(style: AddressBarStyle): Color = when {
+    barUsesGlass(style) -> Color(0xFF0F1114)
+    style == AddressBarStyle.SOLID_THEME -> MaterialTheme.colorScheme.background
+    else -> Color(0xFFF1F3F7)
 }

@@ -164,17 +164,17 @@ fun SettingsScreen(
                 title = "Address Bar Style",
                 subtitle = "Solid gives the bar a black-on-white, fully opaque look",
                 value = when (settings.addressBarStyle) {
-                    AddressBarStyle.LIGHT -> "Solid light"
-                    AddressBarStyle.AUTOMATIC -> "Solid themed"
-                    AddressBarStyle.GLASS -> "Liquid Glass"
+                    AddressBarStyle.LIQUID_GLASS -> "Liquid Glass"
+                    AddressBarStyle.SOLID_LIGHT -> "Solid light"
+                    AddressBarStyle.SOLID_THEME -> "Solid themed"
                 }
             ) {
                 choiceDialog = ChoiceDialogConfig(
                     title = "Address Bar Style",
                     options = listOf(
-                        AddressBarStyle.LIGHT.name to "Solid light (black text on white)",
-                        AddressBarStyle.AUTOMATIC.name to "Solid, follows the theme",
-                        AddressBarStyle.GLASS.name to "Liquid Glass (gen 2, translucent)"
+                        AddressBarStyle.LIQUID_GLASS.name to "Liquid Glass (white bar in light, glass in dark)",
+                        AddressBarStyle.SOLID_LIGHT.name to "Solid light (black text on white)",
+                        AddressBarStyle.SOLID_THEME.name to "Solid, follows the theme"
                     ),
                     selected = settings.addressBarStyle.name
                 ) { id -> onSetAddressBarStyle(AddressBarStyle.fromId(id)) }

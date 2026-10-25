@@ -65,17 +65,21 @@ enum class NewTabBehavior {
 /**
  * How the address bar and toolbar are drawn.
  *
- *  LIGHT     - opaque white surface with black text. Maximum contrast, never
- *              see-through.
- *  AUTOMATIC - opaque surface that follows the theme (dark bar in dark mode).
- *  GLASS     - the liquid-glass pane. This is the default: the chrome strip
- *              behind the bars keeps it readable.
+ *  LIQUID_GLASS - an opaque white bar with black text in light mode, and the
+ *                 liquid-glass pane in dark mode. This is the default and is
+ *                 what the design renders show.
+ *  SOLID_LIGHT  - always an opaque white bar with black text.
+ *  SOLID_THEME  - always opaque, taking its colour from the active theme.
  */
 enum class AddressBarStyle {
-    LIGHT, AUTOMATIC, GLASS;
+    LIQUID_GLASS, SOLID_LIGHT, SOLID_THEME;
 
     companion object {
-        fun fromId(id: String?): AddressBarStyle =
-            entries.firstOrNull { it.name.equals(id, true) } ?: GLASS
+        fun fromId(id: String?): AddressBarStyle = when (id?.uppercase()) {
+            "LIQUID_GLASS", "GLASS" -> LIQUID_GLASS
+            "SOLID_LIGHT", "LIGHT" -> SOLID_LIGHT
+            "SOLID_THEME", "AUTOMATIC" -> SOLID_THEME
+            else -> LIQUID_GLASS
+        }
     }
 }
