@@ -21,11 +21,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
-import com.nexabrowser.app.ui.theme.NexaIcons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,26 +40,38 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nexabrowser.app.browser.TabInfo
-import com.nexabrowser.app.ui.theme.GlassSurface
+import com.nexabrowser.app.domain.model.AddressBarStyle
+import com.nexabrowser.app.ui.theme.BarSurface
 import com.nexabrowser.app.ui.theme.LocalNexaColors
+import com.nexabrowser.app.ui.theme.NexaIcons
+import com.nexabrowser.app.ui.theme.barBorderColor
+import com.nexabrowser.app.ui.theme.barContentColor
+import com.nexabrowser.app.ui.theme.barSecondaryColor
 import com.nexabrowser.app.util.UrlUtils
 
 /**
  * The centred, pill-shaped address bar. It shows a readable URL while the page
  * is in view and the raw URL the moment it is focused, so editing is never
  * surprising. The lock/globe glyph reflects the real connection scheme.
+ *
+ * The surface itself is chosen by [style]; the default is an opaque white bar
+ * with black text so the bar never disappears against a dark page.
  */
 @Composable
 fun AddressBar(
     tab: TabInfo?,
     isLoading: Boolean,
     progress: Int,
+    style: AddressBarStyle,
     onNavigate: (String) -> Unit,
     onReload: () -> Unit,
     onStop: () -> Unit,
@@ -70,6 +80,9 @@ fun AddressBar(
     val extras = LocalNexaColors.current
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
+
+    val contentColor = barContentColor(style)
+    val secondaryColor = barSecondaryColor(style)
 
     val rawUrl = tab?.url.orEmpty()
     var focused by remember { mutableStateOf(false) }
@@ -89,7 +102,8 @@ fun AddressBar(
     )
 
     Box(modifier = modifier.fillMaxWidth().imePadding()) {
-        GlassSurface(
+        BarSurface(
+            style = style,
             shape = RoundedCornerShape(26.dp),
             elevation = 12.dp,
             modifier = Modifier.fillMaxWidth().height(52.dp)
@@ -115,7 +129,7 @@ fun AddressBar(
                         isPrivate -> MaterialTheme.colorScheme.primary
                         isSecure -> extras.secure
                         isHttp -> extras.insecure
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> secondaryColor
                     },
                     modifier = Modifier.size(17.dp)
                 )
@@ -126,9 +140,10 @@ fun AddressBar(
                     value = value,
                     onValueChange = { value = it },
                     singleLine = true,
-                    textStyle = LocalTextStyle.current.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = MaterialTheme.typography.bodyLarge.fontSize
+                    textStyle = TextStyle(
+                        color = contentColor,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Medium
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(
@@ -157,7 +172,7 @@ fun AddressBar(
                                 Text(
                                     text = "Search or enter website",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = secondaryColor,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -171,11 +186,21 @@ fun AddressBar(
 
                 if (isLoading) {
                     IconButton(onClick = onStop, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Filled.Close, contentDescription = "Stop loading", modifier = Modifier.size(19.dp))
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Stop loading",
+                            tint = contentColor,
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
                 } else {
                     IconButton(onClick = onReload, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Reload", modifier = Modifier.size(19.dp))
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = "Reload",
+                            tint = contentColor,
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
                 }
             }
@@ -188,7 +213,7 @@ fun AddressBar(
                     progress = { animatedProgress },
                     modifier = Modifier.fillMaxWidth().height(2.dp),
                     color = MaterialTheme.colorScheme.primary,
-                    trackColor = extras.glassBorder
+                    trackColor = barBorderColor(style)
                 )
             }
         }

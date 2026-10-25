@@ -1,6 +1,8 @@
 package com.nexabrowser.app.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,14 +18,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
-import com.nexabrowser.app.ui.theme.NexaIcons
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,12 +42,19 @@ import com.nexabrowser.app.domain.model.HistoryEntry
 import com.nexabrowser.app.ui.HistoryRange
 import com.nexabrowser.app.ui.components.CachedFavicon
 import com.nexabrowser.app.ui.components.EmptyState
+import com.nexabrowser.app.ui.theme.NexaIcons
 import com.nexabrowser.app.util.UrlUtils
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Browsing history, grouped by day and searchable.
+ *
+ * Entries are removed by swiping a row to the right; there is no delete button
+ * on the row. The toolbar still offers bulk clearing by time range.
+ */
 @Composable
 fun HistoryScreen(
     history: List<HistoryEntry>,
@@ -92,7 +103,11 @@ fun HistoryScreen(
         if (filtered.isEmpty()) {
             EmptyState(
                 title = if (query.isBlank()) "No history yet" else "No matches",
-                subtitle = if (query.isBlank()) "Pages you visit will appear here. Private tabs are never recorded." else null,
+                subtitle = if (query.isBlank()) {
+                    "Pages you visit will appear here. Swipe a row right to delete it. Private tabs are never recorded."
+                } else {
+                    null
+                },
                 modifier = Modifier.weight(1f)
             )
         } else {
@@ -111,34 +126,11 @@ fun HistoryScreen(
                         )
                     }
                     items(entries, key = { it.id }) { entry ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onOpen(entry.url) }
-                                .padding(horizontal = 18.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CachedFavicon(entry.faviconUrl, entry.url, size = 28.dp)
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(entry.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(
-                                    UrlUtils.displayUrl(entry.url),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Text(
-                                timeLabel(entry.visitedAt),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            IconButton(onClick = { onDelete(entry) }) {
-                                Icon(Icons.Filled.Delete, contentDescription = "Delete entry", modifier = Modifier.size(17.dp))
-                            }
-                        }
+                        SwipeToDeleteRow(
+                            entry = entry,
+                            onOpen = { onOpen(entry.url) },
+                            onDelete = { onDelete(entry) }
+                        )
                     }
                 }
             }
@@ -168,6 +160,83 @@ fun HistoryScreen(
             confirmButton = {},
             dismissButton = { TextButton(onClick = { clearDialog = false }) { Text("Cancel") } }
         )
+    }
+}
+
+/** One history row: swipe right to delete, tap to open. */
+@Composable
+private fun SwipeToDeleteRow(
+    entry: HistoryEntry,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value == SwipeToDismissBoxValue.StartToEnd) {
+                onDelete()
+                true
+            } else {
+                false
+            }
+        }
+    )
+
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.Delete,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Delete",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .clickable(onClick = onOpen)
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CachedFavicon(entry.faviconUrl, entry.url, size = 28.dp)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(entry.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    UrlUtils.displayUrl(entry.url),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(
+                timeLabel(entry.visitedAt),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

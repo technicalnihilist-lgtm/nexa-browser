@@ -46,6 +46,7 @@ import com.nexabrowser.app.ui.components.BottomToolbar
 import com.nexabrowser.app.ui.components.WebViewHost
 import com.nexabrowser.app.ui.screens.StartPage
 import com.nexabrowser.app.ui.theme.GlassSurface
+import com.nexabrowser.app.ui.theme.backdropBlur
 
 /**
  * The browser surface: the live WebView (or the start page), the floating glass
@@ -70,7 +71,9 @@ fun BrowserScreen(
 
     Box(modifier.fillMaxSize()) {
         // ---- Page content -------------------------------------------------
-        Box(Modifier.fillMaxSize()) {
+        // The menu opens over this, so the page genuinely blurs behind the glass
+        // sheet (RenderEffect, API 31+). Nothing else blocks navigation.
+        Box(Modifier.fillMaxSize().backdropBlur(uiState.menuOpen, 22.dp)) {
             if (activeTab == null || activeTab.showStartPage) {
                 StartPage(
                     shortcuts = shortcuts,
@@ -112,6 +115,7 @@ fun BrowserScreen(
                 tab = activeTab,
                 isLoading = activeTab?.isLoading == true,
                 progress = activeTab?.progress ?: 0,
+                style = settings.addressBarStyle,
                 onNavigate = viewModel::submitAddress,
                 onReload = viewModel::reload,
                 onStop = viewModel::stopLoading
@@ -136,6 +140,7 @@ fun BrowserScreen(
             canGoForward = activeTab?.canGoForward == true,
             isBookmarked = isBookmarked,
             tabCount = tabCount,
+            style = settings.addressBarStyle,
             onBack = { viewModel.goBack() },
             onForward = { viewModel.goForward() },
             onShare = onShare,

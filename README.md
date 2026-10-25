@@ -55,8 +55,9 @@ No fabricated or seeded sample data anywhere. Six background presets.
 
 ### Bookmarks, History, Reading List
 * Bookmarks: add/remove, edit title and URL, folders, shown on the start page.
-* History: grouped by day, searchable, individual delete, clear by range
-  (last hour / today / last week / all). Private sessions are excluded.
+* History: grouped by day, searchable. Rows are removed by **swiping right** —
+  there is no delete button on the row. Bulk clearing by range (last hour /
+  today / last week / all) lives in the toolbar. Private sessions are excluded.
 * Reading list: save for later, open, remove, and a genuine offline copy via
   `WebView.saveWebArchive` — the "available offline" badge only appears once the
   archive file actually exists on disk.
@@ -84,6 +85,7 @@ Every setting on the screen changes real behaviour:
 | Do Not Track | Injects a `navigator.doNotTrack` shim into each page |
 | Restore tabs on start | Gates session restore |
 | Start-page clock / background | Changes the start page |
+| Address Bar Style | Solid light (black on white, opaque), solid themed, or Liquid Glass |
 | Download over Wi-Fi only | Sets `setAllowedOverMetered(false)` |
 | Download notifications | Switches the DownloadManager notification visibility |
 | Clear history / cache / cookies / website data | Calls the matching platform API |
@@ -236,10 +238,22 @@ Tab cards show the live title, favicon and origin, not a rasterised thumbnail.
 Drawing a detached WebView is unreliable across OEM WebView builds and costs a
 lot of memory per tab.
 
-### Backdrop blur
-Compose has no public backdrop-blur modifier. The glass surfaces are layered
-translucency, gradient, hairline border and shadow. A genuine `RenderEffect`
-blur is applied to the content behind overlays (menu, and available from API 31).
+### Glass and backdrop blur
+The address bar and toolbar default to an **opaque, high-contrast surface**
+(white with black text) because a translucent bar over a dark page reads as
+invisible. Settings offers three styles: Solid light, Solid themed, and Liquid
+Glass.
+
+The Liquid Glass pane is a five-layer composite — a three-stop body gradient, a
+diagonal specular sheen, a rim-light border, a lit top lip and a shaded bottom
+edge — over a soft elevation shadow. Every glass surface in the app (bars, tab
+cards, shortcut tiles, the find bar, the error card, the tab-switcher controls)
+uses it, so the visual language stays consistent.
+
+Compose exposes no public backdrop-blur modifier, so the pane itself is layered
+translucency rather than a real refraction. Where a true backdrop blur *is*
+possible it is used: the page genuinely blurs behind the browser menu via a
+`RenderEffect` (API 31+).
 
 ### Other
 * The start page's background is chosen from six presets; an arbitrary image is

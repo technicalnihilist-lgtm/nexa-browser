@@ -219,6 +219,7 @@ fun NexaApp(
                         onSetSessionRestore = viewModel::setSessionRestore,
                         onSetShowClock = viewModel::setShowClock,
                         onSetBackground = viewModel::setStartBackground,
+                        onSetAddressBarStyle = viewModel::setAddressBarStyle,
                         onSetWifiOnly = viewModel::setDownloadWifiOnly,
                         onSetNotifications = viewModel::setShowDownloadNotifications,
                         onClearHistory = { viewModel.clearHistory(HistoryRange.ALL) },

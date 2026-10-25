@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.nexabrowser.app.domain.model.AddressBarStyle
 import com.nexabrowser.app.domain.model.NewTabBehavior
 import com.nexabrowser.app.domain.model.SearchEngine
 import com.nexabrowser.app.domain.model.ThemeMode
@@ -33,7 +34,8 @@ data class BrowserSettings(
     val showClockOnStartPage: Boolean = true,
     val startPageBackground: String = "",
     val downloadOverWifiOnly: Boolean = false,
-    val showDownloadNotifications: Boolean = true
+    val showDownloadNotifications: Boolean = true,
+    val addressBarStyle: AddressBarStyle = AddressBarStyle.LIGHT
 ) {
     val searchEngine: SearchEngine get() = SearchEngine.fromId(searchEngineId)
 
@@ -72,6 +74,7 @@ class DataStoreManager(private val context: Context) {
         val START_BG = stringPreferencesKey("start_background")
         val WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
         val DL_NOTIFY = booleanPreferencesKey("download_notifications")
+        val BAR_STYLE = stringPreferencesKey("address_bar_style")
     }
 
     val settings: Flow<BrowserSettings> = context.dataStore.data.map { p ->
@@ -92,7 +95,8 @@ class DataStoreManager(private val context: Context) {
             showClockOnStartPage = p[Keys.CLOCK] ?: true,
             startPageBackground = p[Keys.START_BG] ?: "",
             downloadOverWifiOnly = p[Keys.WIFI_ONLY] ?: false,
-            showDownloadNotifications = p[Keys.DL_NOTIFY] ?: true
+            showDownloadNotifications = p[Keys.DL_NOTIFY] ?: true,
+            addressBarStyle = AddressBarStyle.fromId(p[Keys.BAR_STYLE])
         )
     }
 
@@ -115,6 +119,7 @@ class DataStoreManager(private val context: Context) {
     suspend fun setStartBackground(value: String) = edit { it[Keys.START_BG] = value }
     suspend fun setDownloadWifiOnly(enabled: Boolean) = edit { it[Keys.WIFI_ONLY] = enabled }
     suspend fun setShowDownloadNotifications(enabled: Boolean) = edit { it[Keys.DL_NOTIFY] = enabled }
+    suspend fun setAddressBarStyle(style: AddressBarStyle) = edit { it[Keys.BAR_STYLE] = style.name }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)

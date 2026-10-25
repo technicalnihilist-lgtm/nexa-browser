@@ -26,6 +26,7 @@ import com.nexabrowser.app.data.prefs.DataStoreManager
 import com.nexabrowser.app.data.repository.BrowserRepository
 import com.nexabrowser.app.data.repository.DownloadRepository
 import com.nexabrowser.app.data.repository.DownloadRequest
+import com.nexabrowser.app.domain.model.AddressBarStyle
 import com.nexabrowser.app.domain.model.Bookmark
 import com.nexabrowser.app.domain.model.DownloadItem
 import com.nexabrowser.app.domain.model.HistoryEntry
@@ -291,7 +292,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // ------------------------------------------------------------ history
 
     fun deleteHistoryEntry(entry: HistoryEntry) {
-        viewModelScope.launch { repository.deleteHistory(entry.id) }
+        viewModelScope.launch {
+            repository.deleteHistory(entry.id)
+            message("History entry deleted")
+        }
     }
 
     fun clearHistory(range: HistoryRange) {
@@ -479,6 +483,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setStartBackground(value: String) = launchWrite { dataStore.setStartBackground(value) }
     fun setDownloadWifiOnly(enabled: Boolean) = launchWrite { dataStore.setDownloadWifiOnly(enabled) }
     fun setShowDownloadNotifications(enabled: Boolean) = launchWrite { dataStore.setShowDownloadNotifications(enabled) }
+    fun setAddressBarStyle(style: AddressBarStyle) = launchWrite { dataStore.setAddressBarStyle(style) }
 
     private fun launchWrite(block: suspend () -> Unit) {
         viewModelScope.launch { runCatching { block() } }

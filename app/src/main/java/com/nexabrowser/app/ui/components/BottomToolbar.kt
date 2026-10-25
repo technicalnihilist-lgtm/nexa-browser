@@ -13,7 +13,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
-import com.nexabrowser.app.ui.theme.NexaIcons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -21,15 +20,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.nexabrowser.app.ui.theme.GlassSurface
+import com.nexabrowser.app.domain.model.AddressBarStyle
+import com.nexabrowser.app.ui.theme.BarSurface
+import com.nexabrowser.app.ui.theme.NexaIcons
+import com.nexabrowser.app.ui.theme.barContentColor
+import com.nexabrowser.app.ui.theme.barSecondaryColor
 
-/** The translucent bottom bar: history navigation, share, bookmark, tabs, menu. */
+/** The bottom bar: history navigation, share, bookmark, tabs, menu. */
 @Composable
 fun BottomToolbar(
     canGoBack: Boolean,
     canGoForward: Boolean,
     isBookmarked: Boolean,
     tabCount: Int,
+    style: AddressBarStyle,
     onBack: () -> Unit,
     onForward: () -> Unit,
     onShare: () -> Unit,
@@ -38,7 +42,11 @@ fun BottomToolbar(
     onMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    GlassSurface(
+    val contentColor = barContentColor(style)
+    val disabledColor = barSecondaryColor(style).copy(alpha = 0.45f)
+
+    BarSurface(
+        style = style,
         shape = RoundedCornerShape(26.dp),
         elevation = 12.dp,
         modifier = modifier.fillMaxWidth().height(56.dp)
@@ -52,36 +60,36 @@ fun BottomToolbar(
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = if (canGoBack) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    tint = if (canGoBack) contentColor else disabledColor
                 )
             }
             IconButton(onClick = onForward, enabled = canGoForward) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowForward,
                     contentDescription = "Forward",
-                    tint = if (canGoForward) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    tint = if (canGoForward) contentColor else disabledColor
                 )
             }
             IconButton(onClick = onShare) {
-                Icon(Icons.Filled.Share, contentDescription = "Share")
+                Icon(Icons.Filled.Share, contentDescription = "Share", tint = contentColor)
             }
             IconButton(onClick = onBookmark) {
                 Icon(
                     if (isBookmarked) Icons.Filled.Star else NexaIcons.StarBorder,
                     contentDescription = if (isBookmarked) "Remove bookmark" else "Add bookmark",
-                    tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    tint = if (isBookmarked) MaterialTheme.colorScheme.primary else contentColor
                 )
             }
             Box(contentAlignment = Alignment.TopEnd) {
                 IconButton(onClick = onTabs) {
-                    Icon(NexaIcons.Tab, contentDescription = "Tabs")
+                    Icon(NexaIcons.Tab, contentDescription = "Tabs", tint = contentColor)
                 }
                 if (tabCount > 1) {
                     CountBadge(count = tabCount, modifier = Modifier.padding(top = 4.dp, end = 2.dp))
                 }
             }
             IconButton(onClick = onMenu) {
-                Icon(Icons.Filled.Menu, contentDescription = "Menu")
+                Icon(Icons.Filled.Menu, contentDescription = "Menu", tint = contentColor)
             }
         }
     }

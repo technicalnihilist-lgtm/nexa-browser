@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nexabrowser.app.BuildConfig
 import com.nexabrowser.app.data.prefs.BrowserSettings
+import com.nexabrowser.app.domain.model.AddressBarStyle
 import com.nexabrowser.app.domain.model.NewTabBehavior
 import com.nexabrowser.app.domain.model.SearchEngine
 import com.nexabrowser.app.domain.model.SitePermissionRecord
@@ -52,6 +53,7 @@ fun SettingsScreen(
     onSetSessionRestore: (Boolean) -> Unit,
     onSetShowClock: (Boolean) -> Unit,
     onSetBackground: (String) -> Unit,
+    onSetAddressBarStyle: (AddressBarStyle) -> Unit,
     onSetWifiOnly: (Boolean) -> Unit,
     onSetNotifications: (Boolean) -> Unit,
     onClearHistory: () -> Unit,
@@ -157,6 +159,27 @@ fun SettingsScreen(
 
         item { DividerLine() }
         item { SectionHeader("Appearance") }
+        item {
+            ActionRow(
+                title = "Address Bar Style",
+                subtitle = "Solid gives the bar a black-on-white, fully opaque look",
+                value = when (settings.addressBarStyle) {
+                    AddressBarStyle.LIGHT -> "Solid light"
+                    AddressBarStyle.AUTOMATIC -> "Solid themed"
+                    AddressBarStyle.GLASS -> "Liquid Glass"
+                }
+            ) {
+                choiceDialog = ChoiceDialogConfig(
+                    title = "Address Bar Style",
+                    options = listOf(
+                        AddressBarStyle.LIGHT.name to "Solid light (black text on white)",
+                        AddressBarStyle.AUTOMATIC.name to "Solid, follows the theme",
+                        AddressBarStyle.GLASS.name to "Liquid Glass (gen 2, translucent)"
+                    ),
+                    selected = settings.addressBarStyle.name
+                ) { id -> onSetAddressBarStyle(AddressBarStyle.fromId(id)) }
+            }
+        }
         item {
             ActionRow(
                 title = "Theme",
