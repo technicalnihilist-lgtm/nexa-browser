@@ -1,3 +1,5 @@
+<p align="center"><img src="icon/nexa-icon-192.png" width="104" alt="Nexa Browser icon" /></p>
+
 # Nexa Browser
 
 A complete, working Android web browser with a Safari-inspired, liquid-glass interface.
@@ -85,7 +87,7 @@ Every setting on the screen changes real behaviour:
 | Do Not Track | Injects a `navigator.doNotTrack` shim into each page |
 | Restore tabs on start | Gates session restore |
 | Start-page clock / background | Changes the start page |
-| Address Bar Style | Solid light (black on white, opaque), solid themed, or Liquid Glass |
+| Address Bar Style | Liquid Glass (default), solid light (black on white), or solid themed |
 | Download over Wi-Fi only | Sets `setAllowedOverMetered(false)` |
 | Download notifications | Switches the DownloadManager notification visibility |
 | Clear history / cache / cookies / website data | Calls the matching platform API |
@@ -126,6 +128,8 @@ the APK to see the real thing.
 | **Tab switcher** — card per tab, live title and favicon | **Private browsing** — distinct dark palette and honest notice |
 | ![History](screenshots/05-history-swipe-to-delete.png) | ![Settings](screenshots/06-settings.png) |
 | **History** — swipe a row right to delete it | **Settings** — every option changes real behaviour |
+
+The renders include the opaque chrome strip and the inset page, matching the app.
 
 ---
 
@@ -256,11 +260,19 @@ Tab cards show the live title, favicon and origin, not a rasterised thumbnail.
 Drawing a detached WebView is unreliable across OEM WebView builds and costs a
 lot of memory per tab.
 
+### Chrome and the page
+The bars sit on an **opaque chrome strip** and the page is **inset** by the
+chrome height, so a site's own header can never run underneath the address bar.
+That was the cause of the "two search bars" look: before, a page like a Google
+results page rendered its own search field directly behind the floating bar.
+
+The app draws exactly one search/address bar. A website's own search field is
+page content and is not removable — it now sits cleanly below the chrome instead
+of behind it.
+
 ### Glass and backdrop blur
-The address bar and toolbar default to an **opaque, high-contrast surface**
-(white with black text) because a translucent bar over a dark page reads as
-invisible. Settings offers three styles: Solid light, Solid themed, and Liquid
-Glass.
+Settings offers three bar styles: **Liquid Glass** (the default), Solid light
+(black on white) and Solid themed.
 
 The Liquid Glass pane is a five-layer composite — a three-stop body gradient, a
 diagonal specular sheen, a rim-light border, a lit top lip and a shaded bottom

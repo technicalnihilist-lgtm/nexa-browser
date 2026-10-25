@@ -35,7 +35,7 @@ data class BrowserSettings(
     val startPageBackground: String = "",
     val downloadOverWifiOnly: Boolean = false,
     val showDownloadNotifications: Boolean = true,
-    val addressBarStyle: AddressBarStyle = AddressBarStyle.LIGHT
+    val addressBarStyle: AddressBarStyle = AddressBarStyle.GLASS
 ) {
     val searchEngine: SearchEngine get() = SearchEngine.fromId(searchEngineId)
 

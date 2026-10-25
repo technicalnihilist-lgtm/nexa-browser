@@ -223,3 +223,15 @@ fun barBorderColor(style: AddressBarStyle): Color = when (style) {
     AddressBarStyle.AUTOMATIC -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
     AddressBarStyle.GLASS -> LocalNexaColors.current.glassBorder
 }
+
+/**
+ * Opaque colour of the chrome strip that sits behind the bars. The page is
+ * inset so it never runs underneath the bars, and this strip makes the chrome
+ * read as deliberate rather than as a gap.
+ */
+@Composable
+fun barChromeColor(style: AddressBarStyle): Color = when (style) {
+    AddressBarStyle.LIGHT -> Color(0xFFF1F3F7)
+    AddressBarStyle.AUTOMATIC -> MaterialTheme.colorScheme.background
+    AddressBarStyle.GLASS -> if (LocalNexaColors.current.isDark) Color(0xFF0F1114) else Color(0xFFF1F3F7)
+}

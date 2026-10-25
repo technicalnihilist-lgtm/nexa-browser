@@ -3,18 +3,22 @@ package com.nexabrowser.app.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,6 +51,7 @@ import com.nexabrowser.app.ui.components.WebViewHost
 import com.nexabrowser.app.ui.screens.StartPage
 import com.nexabrowser.app.ui.theme.GlassSurface
 import com.nexabrowser.app.ui.theme.backdropBlur
+import com.nexabrowser.app.ui.theme.barChromeColor
 
 /**
  * The browser surface: the live WebView (or the start page), the floating glass
@@ -69,6 +74,12 @@ fun BrowserScreen(
 ) {
     val activeWebView = viewModel.tabManager.activeTab()?.webView
 
+    // The page is inset by the chrome height so a site's own header can never
+    // sit underneath the address bar (which reads as a second search bar).
+    val systemInsets = WindowInsets.systemBars.asPaddingValues()
+    val chromeTop = systemInsets.calculateTopPadding() + 68.dp
+    val chromeBottom = systemInsets.calculateBottomPadding() + 72.dp
+
     Box(modifier.fillMaxSize()) {
         // ---- Page content -------------------------------------------------
         // The menu opens over this, so the page genuinely blurs behind the glass
@@ -87,7 +98,12 @@ fun BrowserScreen(
                     onReorderShortcuts = viewModel::reorderShortcuts
                 )
             } else {
-                WebViewHost(activeWebView, Modifier.fillMaxSize())
+                WebViewHost(
+                    activeWebView,
+                    Modifier
+                        .fillMaxSize()
+                        .padding(top = chromeTop, bottom = chromeBottom)
+                )
             }
 
             AnimatedVisibility(
@@ -107,6 +123,7 @@ fun BrowserScreen(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
+                .background(barChromeColor(settings.addressBarStyle))
                 .statusBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -149,6 +166,8 @@ fun BrowserScreen(
             onMenu = viewModel::openMenu,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(barChromeColor(settings.addressBarStyle))
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         )

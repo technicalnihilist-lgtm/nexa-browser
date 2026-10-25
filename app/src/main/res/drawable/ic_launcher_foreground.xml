@@ -1,19 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Original Nexa Browser mark: an abstract "N" inside a glass bubble.
-     Not derived from Apple or Safari assets. -->
+<!--
+  Original Nexa mark: a 3D liquid-glass sphere holding an abstract "N".
+  Depth comes from four stacked layers — a cast glow, a lit sphere gradient, a
+  bottom inner shade and a specular highlight — plus a rim light and a shadow
+  under the letter. Not derived from Apple or Safari assets.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- cast glow behind the sphere -->
     <path
+        android:pathData="M54,18 A36,36 0 1,0 54,90 A36,36 0 1,0 54,18 Z"
         android:fillColor="#2F6BFF"
-        android:pathData="M54,26 C70.6,26 84,39.4 84,56 C84,72.6 70.6,86 54,86 C37.4,86 24,72.6 24,56 C24,39.4 37.4,26 54,26 Z" />
+        android:fillAlpha="0.20" />
+
+    <!-- sphere body, lit from the upper left -->
+    <path android:pathData="M54,24 A30,30 0 1,0 54,84 A30,30 0 1,0 54,24 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="32" android:startY="24"
+                android:endX="80" android:endY="86"
+                android:startColor="#9CC0FF"
+                android:centerColor="#2F6BFF"
+                android:endColor="#14339C" />
+        </aapt:attr>
+    </path>
+
+    <!-- bottom inner shade: the thickness of the glass -->
     <path
+        android:pathData="M24,54 A30,30 0 0,0 84,54 Z"
+        android:fillColor="#0A1740"
+        android:fillAlpha="0.38" />
+
+    <!-- large soft specular -->
+    <path
+        android:pathData="M33,33 A13,9 0 1,0 33,51 A13,9 0 1,0 33,33 Z"
         android:fillColor="#FFFFFF"
-        android:pathData="M40,72 L40,42 L45.5,42 L62.5,62 L62.5,42 L68,42 L68,72 L62.5,72 L45.5,52 L45.5,72 Z" />
+        android:fillAlpha="0.34" />
+
+    <!-- small sharp specular -->
     <path
-        android:fillColor="#8FC0FF"
-        android:fillAlpha="0.55"
-        android:pathData="M54,26 C70.6,26 84,39.4 84,56 C84,60 83,63.8 81.3,67.2 C74,62 64.6,59 54,59 C43.4,59 34,62 26.7,67.2 C25,63.8 24,60 24,56 C24,39.4 37.4,26 54,26 Z" />
+        android:pathData="M62,32 A4.5,3.2 0 1,0 62,38.4 A4.5,3.2 0 1,0 62,32 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.62" />
+
+    <!-- rim light along the upper-right edge -->
+    <path
+        android:pathData="M54,24 A30,30 0 0,1 84,54"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.55"
+        android:strokeWidth="1.7"
+        android:strokeLineCap="round" />
+
+    <!-- shadow under the letter -->
+    <path
+        android:pathData="M42,75 L42,45 L47.5,45 L64.5,65 L64.5,45 L70,45 L70,75 L64.5,75 L47.5,55 L47.5,75 Z"
+        android:fillColor="#071233"
+        android:fillAlpha="0.45" />
+
+    <!-- the letter -->
+    <path
+        android:pathData="M40,72 L40,42 L45.5,42 L62.5,62 L62.5,42 L68,42 L68,72 L62.5,72 L45.5,52 L45.5,72 Z"
+        android:fillColor="#FFFFFF" />
 </vector>
