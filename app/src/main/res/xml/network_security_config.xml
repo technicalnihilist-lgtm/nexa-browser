@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network Security Configuration for Nexa Browser.
+
+  Design goals:
+    * Prefer HTTPS everywhere.
+    * Never disable certificate validation and never trust user-added CAs for
+      production traffic (which would let an attacker MITM browsing).
+    * Cleartext (HTTP) traffic is blocked by default, so a page cannot silently
+      downgrade. Local development hosts are the only exception.
+
+  The WebView's onReceivedSslError handler also always cancels, giving a second
+  layer of defence against MITM certificates.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>
