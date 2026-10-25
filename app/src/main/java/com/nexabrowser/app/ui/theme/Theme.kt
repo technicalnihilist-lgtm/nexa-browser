@@ -12,6 +12,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.luminance
+import com.nexabrowser.app.domain.model.AccentPreset
+import com.nexabrowser.app.domain.model.CornerStyle
 import com.nexabrowser.app.domain.model.ThemeMode
 
 /** Extra colours the Material scheme does not carry. */
@@ -71,6 +74,8 @@ private val DarkScheme = darkColorScheme(
 fun NexaTheme(
     themeMode: ThemeMode,
     isPrivate: Boolean = false,
+    accent: AccentPreset = AccentPreset.BLUE,
+    corners: CornerStyle = CornerStyle.ROUNDED,
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()
@@ -80,19 +85,17 @@ fun NexaTheme(
         ThemeMode.DARK -> true
     }
 
-    val context = LocalContext.current
-    val scheme = when {
-        isPrivate -> DarkScheme.copy(
-            primary = NexaPrivateAccent,
-            background = NexaPrivateBg,
-            surface = NexaPrivateSurface
-        )
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
+    // The Theme extension drives the accent directly, so the palette is
+    // predictable across devices instead of following the wallpaper.
+    val accentColor = if (isPrivate) NexaPrivateAccent else Color(accent.argb)
+    val onAccent = if (accentColor.luminance() > 0.55f) Color(0xFF10131A) else Color.White
+
+    val base = when {
+        isPrivate -> DarkScheme.copy(background = NexaPrivateBg, surface = NexaPrivateSurface)
         dark -> DarkScheme
         else -> LightScheme
     }
+    val scheme = base.copy(primary = accentColor, onPrimary = onAccent)
 
     val extras = NexaExtraColors(
         glassTint = when {
@@ -112,7 +115,7 @@ fun NexaTheme(
         MaterialTheme(
             colorScheme = scheme,
             typography = NexaTypography,
-            shapes = NexaShapes,
+            shapes = nexaShapes(corners.scale),
             content = content
         )
     }

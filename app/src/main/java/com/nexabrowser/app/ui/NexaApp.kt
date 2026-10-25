@@ -50,6 +50,7 @@ import com.nexabrowser.app.ui.components.BrowserMenuSheet
 import com.nexabrowser.app.ui.components.ScreenTopBar
 import com.nexabrowser.app.ui.screens.BookmarksScreen
 import com.nexabrowser.app.ui.screens.DownloadsScreen
+import com.nexabrowser.app.ui.screens.ExtensionsScreen
 import com.nexabrowser.app.ui.screens.HistoryScreen
 import com.nexabrowser.app.ui.screens.ReadingListScreen
 import com.nexabrowser.app.ui.screens.SettingsScreen
@@ -106,7 +107,12 @@ fun NexaApp(
         }
     }
 
-    NexaTheme(themeMode = settings.themeMode, isPrivate = privateMode) {
+    NexaTheme(
+        themeMode = settings.themeMode,
+        isPrivate = privateMode,
+        accent = settings.accent,
+        corners = settings.corners
+    ) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -199,6 +205,24 @@ fun NexaApp(
                     )
                 }
 
+                NexaScreen.EXTENSIONS -> Column(Modifier.fillMaxSize()) {
+                    ScreenTopBar(title = "Extensions", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
+                    ExtensionsScreen(
+                        settings = settings,
+                        blockedHosts = viewModel.blockedHostCount(),
+                        onAdBlock = viewModel::setAdBlockEnabled,
+                        onForceHttps = viewModel::setForceHttpsEnabled,
+                        onDarkPages = viewModel::setDarkPagesEnabled,
+                        onDataSaver = viewModel::setDataSaverEnabled,
+                        onCleanLinks = viewModel::setCleanLinksEnabled,
+                        onCustomCssEnabled = viewModel::setCustomCssEnabled,
+                        onCustomCss = viewModel::setCustomCss,
+                        onAccent = viewModel::setAccent,
+                        onCorners = viewModel::setCorners,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
                 NexaScreen.SETTINGS -> Column(Modifier.fillMaxSize()) {
                     ScreenTopBar(title = "Settings", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
                     SettingsScreen(
@@ -251,6 +275,7 @@ fun NexaApp(
                 onHistory = { viewModel.setScreen(NexaScreen.HISTORY) },
                 onDownloads = { viewModel.setScreen(NexaScreen.DOWNLOADS) },
                 onReadingList = { viewModel.addCurrentToReadingList(); viewModel.setScreen(NexaScreen.READING_LIST) },
+                onExtensions = { viewModel.setScreen(NexaScreen.EXTENSIONS) },
                 onFindInPage = { viewModel.closeMenu(); viewModel.showFind() },
                 onShare = {
                     viewModel.closeMenu()

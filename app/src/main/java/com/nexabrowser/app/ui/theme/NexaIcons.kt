@@ -178,4 +178,12 @@ object NexaIcons {
                 "17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"
         )
     }
+
+    /** Four tiles — the Extensions entry. */
+    val Extension: ImageVector by lazy {
+        icon(
+            "Extension",
+            "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"
+        )
+    }
 }

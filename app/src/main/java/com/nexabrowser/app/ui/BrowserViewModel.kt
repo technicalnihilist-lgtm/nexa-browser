@@ -19,6 +19,7 @@ import com.nexabrowser.app.browser.BrowserNavigationController
 import com.nexabrowser.app.browser.BrowserTabManager
 import com.nexabrowser.app.browser.DelegatingActivityHost
 import com.nexabrowser.app.browser.JsDialogType
+import com.nexabrowser.app.browser.LinkCleaner
 import com.nexabrowser.app.browser.PrivateBrowsingManager
 import com.nexabrowser.app.data.local.NexaDatabase
 import com.nexabrowser.app.data.prefs.BrowserSettings
@@ -26,7 +27,9 @@ import com.nexabrowser.app.data.prefs.DataStoreManager
 import com.nexabrowser.app.data.repository.BrowserRepository
 import com.nexabrowser.app.data.repository.DownloadRepository
 import com.nexabrowser.app.data.repository.DownloadRequest
+import com.nexabrowser.app.domain.model.AccentPreset
 import com.nexabrowser.app.domain.model.AddressBarStyle
+import com.nexabrowser.app.domain.model.CornerStyle
 import com.nexabrowser.app.domain.model.Bookmark
 import com.nexabrowser.app.domain.model.DownloadItem
 import com.nexabrowser.app.domain.model.HistoryEntry
@@ -51,7 +54,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** Top-level destinations that are drawn over the browser. */
-enum class NexaScreen { BROWSER, BOOKMARKS, HISTORY, DOWNLOADS, READING_LIST, SETTINGS, TABS }
+enum class NexaScreen { BROWSER, BOOKMARKS, HISTORY, DOWNLOADS, READING_LIST, SETTINGS, TABS, EXTENSIONS }
 
 data class JsDialogState(
     val type: JsDialogType,
@@ -216,7 +219,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // ------------------------------------------------------------ navigation
 
     fun submitAddress(input: String) {
-        val resolved = UrlUtils.resolveInput(input, settings.value.activeQueryTemplate)
+        val prefs = settings.value
+        var resolved = UrlUtils.resolveInput(input, prefs.activeQueryTemplate)
+        if (prefs.cleanLinksEnabled) resolved = LinkCleaner.clean(resolved)
         if (resolved.isBlank()) return
         if (!resolved.startsWith("http") && !resolved.startsWith("file") && !resolved.startsWith("about")) {
             if (UrlUtils.isSafeExternalScheme(UrlUtils.schemeOf(resolved))) {
@@ -484,6 +489,20 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setDownloadWifiOnly(enabled: Boolean) = launchWrite { dataStore.setDownloadWifiOnly(enabled) }
     fun setShowDownloadNotifications(enabled: Boolean) = launchWrite { dataStore.setShowDownloadNotifications(enabled) }
     fun setAddressBarStyle(style: AddressBarStyle) = launchWrite { dataStore.setAddressBarStyle(style) }
+
+    // ---- extensions ----
+    fun setAdBlockEnabled(on: Boolean) = launchWrite { dataStore.setAdBlockEnabled(on) }
+    fun setForceHttpsEnabled(on: Boolean) = launchWrite { dataStore.setForceHttpsEnabled(on) }
+    fun setDarkPagesEnabled(on: Boolean) = launchWrite { dataStore.setDarkPagesEnabled(on) }
+    fun setDataSaverEnabled(on: Boolean) = launchWrite { dataStore.setDataSaverEnabled(on) }
+    fun setCleanLinksEnabled(on: Boolean) = launchWrite { dataStore.setCleanLinksEnabled(on) }
+    fun setCustomCssEnabled(on: Boolean) = launchWrite { dataStore.setCustomCssEnabled(on) }
+    fun setCustomCss(css: String) = launchWrite { dataStore.setCustomCss(css) }
+    fun setAccent(accent: AccentPreset) = launchWrite { dataStore.setAccent(accent) }
+    fun setCorners(corners: CornerStyle) = launchWrite { dataStore.setCorners(corners) }
+
+    /** Number of hosts in the bundled blocklist, for the Extensions screen. */
+    fun blockedHostCount(): Int = com.nexabrowser.app.browser.AdBlocker.blockedCount()
 
     private fun launchWrite(block: suspend () -> Unit) {
         viewModelScope.launch { runCatching { block() } }

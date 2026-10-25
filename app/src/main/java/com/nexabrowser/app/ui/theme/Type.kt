@@ -61,3 +61,12 @@ val NexaShapes = Shapes(
     large = RoundedCornerShape(24.dp),
     extraLarge = RoundedCornerShape(32.dp)
 )
+
+/** Shapes at a given roundness, used by the Theme extension. */
+fun nexaShapes(scale: Float) = Shapes(
+    extraSmall = RoundedCornerShape((8f * scale).dp),
+    small = RoundedCornerShape((12f * scale).dp),
+    medium = RoundedCornerShape((18f * scale).dp),
+    large = RoundedCornerShape((24f * scale).dp),
+    extraLarge = RoundedCornerShape((32f * scale).dp)
+)

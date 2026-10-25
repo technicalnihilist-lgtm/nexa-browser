@@ -8,7 +8,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.nexabrowser.app.domain.model.AccentPreset
 import com.nexabrowser.app.domain.model.AddressBarStyle
+import com.nexabrowser.app.domain.model.CornerStyle
 import com.nexabrowser.app.domain.model.NewTabBehavior
 import com.nexabrowser.app.domain.model.SearchEngine
 import com.nexabrowser.app.domain.model.ThemeMode
@@ -35,7 +37,18 @@ data class BrowserSettings(
     val startPageBackground: String = "",
     val downloadOverWifiOnly: Boolean = false,
     val showDownloadNotifications: Boolean = true,
-    val addressBarStyle: AddressBarStyle = AddressBarStyle.LIQUID_GLASS
+    val addressBarStyle: AddressBarStyle = AddressBarStyle.LIQUID_GLASS,
+
+    // Extensions
+    val adBlockEnabled: Boolean = true,
+    val forceHttpsEnabled: Boolean = true,
+    val darkPagesEnabled: Boolean = false,
+    val dataSaverEnabled: Boolean = false,
+    val cleanLinksEnabled: Boolean = true,
+    val customCssEnabled: Boolean = false,
+    val customCss: String = "",
+    val accent: AccentPreset = AccentPreset.BLUE,
+    val corners: CornerStyle = CornerStyle.ROUNDED
 ) {
     val searchEngine: SearchEngine get() = SearchEngine.fromId(searchEngineId)
 
@@ -75,6 +88,15 @@ class DataStoreManager(private val context: Context) {
         val WIFI_ONLY = booleanPreferencesKey("download_wifi_only")
         val DL_NOTIFY = booleanPreferencesKey("download_notifications")
         val BAR_STYLE = stringPreferencesKey("address_bar_style")
+        val AD_BLOCK = booleanPreferencesKey("ext_ad_block")
+        val FORCE_HTTPS = booleanPreferencesKey("ext_force_https")
+        val DARK_PAGES = booleanPreferencesKey("ext_dark_pages")
+        val DATA_SAVER = booleanPreferencesKey("ext_data_saver")
+        val CLEAN_LINKS = booleanPreferencesKey("ext_clean_links")
+        val CUSTOM_CSS_ON = booleanPreferencesKey("ext_custom_css_on")
+        val CUSTOM_CSS = stringPreferencesKey("ext_custom_css")
+        val ACCENT = stringPreferencesKey("ext_accent")
+        val CORNERS = stringPreferencesKey("ext_corners")
     }
 
     val settings: Flow<BrowserSettings> = context.dataStore.data.map { p ->
@@ -96,7 +118,16 @@ class DataStoreManager(private val context: Context) {
             startPageBackground = p[Keys.START_BG] ?: "",
             downloadOverWifiOnly = p[Keys.WIFI_ONLY] ?: false,
             showDownloadNotifications = p[Keys.DL_NOTIFY] ?: true,
-            addressBarStyle = AddressBarStyle.fromId(p[Keys.BAR_STYLE])
+            addressBarStyle = AddressBarStyle.fromId(p[Keys.BAR_STYLE]),
+            adBlockEnabled = p[Keys.AD_BLOCK] ?: true,
+            forceHttpsEnabled = p[Keys.FORCE_HTTPS] ?: true,
+            darkPagesEnabled = p[Keys.DARK_PAGES] ?: false,
+            dataSaverEnabled = p[Keys.DATA_SAVER] ?: false,
+            cleanLinksEnabled = p[Keys.CLEAN_LINKS] ?: true,
+            customCssEnabled = p[Keys.CUSTOM_CSS_ON] ?: false,
+            customCss = p[Keys.CUSTOM_CSS] ?: "",
+            accent = AccentPreset.fromId(p[Keys.ACCENT]),
+            corners = CornerStyle.fromId(p[Keys.CORNERS])
         )
     }
 
@@ -120,6 +151,16 @@ class DataStoreManager(private val context: Context) {
     suspend fun setDownloadWifiOnly(enabled: Boolean) = edit { it[Keys.WIFI_ONLY] = enabled }
     suspend fun setShowDownloadNotifications(enabled: Boolean) = edit { it[Keys.DL_NOTIFY] = enabled }
     suspend fun setAddressBarStyle(style: AddressBarStyle) = edit { it[Keys.BAR_STYLE] = style.name }
+
+    suspend fun setAdBlockEnabled(on: Boolean) = edit { it[Keys.AD_BLOCK] = on }
+    suspend fun setForceHttpsEnabled(on: Boolean) = edit { it[Keys.FORCE_HTTPS] = on }
+    suspend fun setDarkPagesEnabled(on: Boolean) = edit { it[Keys.DARK_PAGES] = on }
+    suspend fun setDataSaverEnabled(on: Boolean) = edit { it[Keys.DATA_SAVER] = on }
+    suspend fun setCleanLinksEnabled(on: Boolean) = edit { it[Keys.CLEAN_LINKS] = on }
+    suspend fun setCustomCssEnabled(on: Boolean) = edit { it[Keys.CUSTOM_CSS_ON] = on }
+    suspend fun setCustomCss(css: String) = edit { it[Keys.CUSTOM_CSS] = css }
+    suspend fun setAccent(a: AccentPreset) = edit { it[Keys.ACCENT] = a.name }
+    suspend fun setCorners(c: CornerStyle) = edit { it[Keys.CORNERS] = c.name }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)

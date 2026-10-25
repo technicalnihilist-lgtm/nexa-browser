@@ -46,6 +46,7 @@ fun BrowserMenuSheet(
     onHistory: () -> Unit,
     onDownloads: () -> Unit,
     onReadingList: () -> Unit,
+    onExtensions: () -> Unit,
     onFindInPage: () -> Unit,
     onShare: () -> Unit,
     onCopyLink: () -> Unit,
@@ -70,6 +71,7 @@ fun BrowserMenuSheet(
             MenuRow(NexaIcons.Download, "Downloads", onDownloads)
             MenuRow(Icons.Filled.List, "Reading List", onReadingList)
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
+            MenuRow(NexaIcons.Extension, "Extensions", onExtensions)
             MenuRow(Icons.Filled.Search, "Find on Page", onFindInPage)
             MenuRow(Icons.Filled.Share, "Share", onShare)
             MenuRow(NexaIcons.Link, "Copy Link", onCopyLink)

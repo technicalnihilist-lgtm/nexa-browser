@@ -78,6 +78,25 @@ status; supports cancel, retry, open and remove; de-duplicates file names;
 handles interruption and failure with real reason codes from the system. Progress
 is read from the DownloadManager cursor — nothing is faked.
 
+### Extensions
+
+Every extension changes real behaviour; none of them are decorative switches.
+
+| Extension | What it actually does |
+|---|---|
+| **Ad & Tracker Blocker** | Answers requests to ~150 known advertising, analytics and attribution hosts with an empty response inside `shouldInterceptRequest`. Host and all its subdomains are matched, so the page still loads normally. The list ships in `assets/blocklist.txt` and is deliberately conservative. |
+| **Force HTTPS** | Rewrites `http://` navigations to `https://` before the WebView loads them. `localhost`, `127.x`, `::1`, `10.0.2.2` and `.local` are left alone so local testing still works. |
+| **Dark Mode for Websites** | Injects a stylesheet that inverts the page while re-inverting images, video, canvas and background images, so photos keep their true colours. |
+| **Data Saver** | Sets `loadsImagesAutomatically = false`, so pages load without images. |
+| **Clean Links** | Strips `utm_*`, `fbclid`, `gclid`, `msclkid`, `mc_cid` and similar tracking parameters before a URL is loaded. |
+| **Custom CSS** | Injects your own stylesheet into every page. |
+| **Theme Studio** | Changes the app's accent colour (six presets) and corner roundness (square / rounded / extra rounded). This is the "theme / app UI" extension. |
+
+Page-level extensions are delivered as a single `<style id="nexa-extension-style">`
+element injected on `onPageFinished` and re-injected whenever a setting changes,
+so toggling one takes effect on the open page immediately. No JavaScript bridge
+is exposed to pages — the injection is one-way, from the app into the document.
+
 ### Settings
 Every setting on the screen changes real behaviour:
 

@@ -98,7 +98,8 @@ class BrowserTabManager(
             tabId = id,
             settings = settingsProvider(),
             sink = this,
-            host = host
+            host = host,
+            settingsProvider = settingsProvider
         )
         val tab = BrowserTab(id, isPrivate, webView)
         observe(tab)
@@ -194,6 +195,15 @@ class BrowserTabManager(
             BrowserWebViewFactory.applySettings(tab.webView, settings)
             if (settings.doNotTrackEnabled && tab.info.url.isNotBlank()) {
                 BrowserWebViewFactory.injectDoNotTrack(tab.webView, true)
+            }
+            // Re-apply page extensions so toggling one takes effect immediately.
+            if (tab.info.url.isNotBlank()) {
+                runCatching {
+                    tab.webView.evaluateJavascript(
+                        PageInjections.applyScript(PageInjections.cssFor(settings)),
+                        null
+                    )
+                }
             }
         }
     }

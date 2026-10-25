@@ -58,7 +58,8 @@ object BrowserWebViewFactory {
         tabId: String,
         settings: BrowserSettings,
         sink: TabEventSink,
-        host: BrowserActivityHost
+        host: BrowserActivityHost,
+        settingsProvider: () -> BrowserSettings
     ): WebView {
         val webView = WebView(context)
         webView.layoutParams = android.view.ViewGroup.LayoutParams(
@@ -72,7 +73,7 @@ object BrowserWebViewFactory {
 
         applySettings(webView, settings)
 
-        webView.webViewClient = NexaWebViewClient(tabId, sink, host)
+        webView.webViewClient = NexaWebViewClient(tabId, sink, host, settingsProvider)
         webView.webChromeClient = NexaChromeClient(tabId, sink, host)
         webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
             host.onDownloadRequested(tabId, url, userAgent, contentDisposition, mimeType)
@@ -86,7 +87,7 @@ object BrowserWebViewFactory {
         s.javaScriptEnabled = settings.javaScriptEnabled
         s.domStorageEnabled = true
         s.databaseEnabled = true
-        s.loadsImagesAutomatically = true
+        s.loadsImagesAutomatically = !settings.dataSaverEnabled
         s.setSupportZoom(true)
         s.builtInZoomControls = true
         s.displayZoomControls = false
@@ -120,8 +121,20 @@ object BrowserWebViewFactory {
 private class NexaWebViewClient(
     private val tabId: String,
     private val sink: TabEventSink,
-    private val host: BrowserActivityHost
+    private val host: BrowserActivityHost,
+    private val settingsProvider: () -> BrowserSettings
 ) : WebViewClient() {
+
+    /** Ad & tracker blocking, enforced at the network layer. */
+    override fun shouldInterceptRequest(
+        view: WebView,
+        request: WebResourceRequest
+    ): WebResourceResponse? {
+        if (settingsProvider().adBlockEnabled && AdBlocker.isBlocked(request.url.host)) {
+            return AdBlocker.emptyResponse()
+        }
+        return null
+    }
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url.toString()
@@ -135,6 +148,15 @@ private class NexaWebViewClient(
         }
         // Never allow a page to run javascript: URLs via a link.
         if (scheme == "javascript") return true
+
+        // Force HTTPS extension: upgrade cleartext navigations, except locally.
+        if (scheme == "http" &&
+            settingsProvider().forceHttpsEnabled &&
+            !PageInjections.isLocalHost(request.url.host)
+        ) {
+            view.loadUrl(url.replaceFirst("http://", "https://"))
+            return true
+        }
 
         return when (scheme) {
             "http", "https", "about", "data", "blob", "file", "content" -> false
@@ -158,6 +180,11 @@ private class NexaWebViewClient(
     override fun onPageFinished(view: WebView, url: String) {
         sink.onPageFinished(tabId, url)
         sink.onNavigationState(tabId, view.canGoBack(), view.canGoForward())
+        // Page extensions (dark pages, custom CSS) are delivered as a style tag.
+        runCatching {
+            val css = PageInjections.cssFor(settingsProvider())
+            view.evaluateJavascript(PageInjections.applyScript(css), null)
+        }
     }
 
     override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {

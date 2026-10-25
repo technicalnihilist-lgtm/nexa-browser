@@ -83,3 +83,30 @@ enum class AddressBarStyle {
         }
     }
 }
+
+/** Accent choices offered by the Theme extension. */
+enum class AccentPreset(val argb: Long, val displayName: String) {
+    BLUE(0xFF2F6BFF, "Nexa Blue"),
+    TEAL(0xFF12B5A5, "Teal"),
+    VIOLET(0xFF8B5CF6, "Violet"),
+    ROSE(0xFFEC4899, "Rose"),
+    AMBER(0xFFE0A106, "Amber"),
+    GRAPHITE(0xFF6B7280, "Graphite");
+
+    companion object {
+        fun fromId(id: String?): AccentPreset =
+            entries.firstOrNull { it.name.equals(id, true) } ?: BLUE
+    }
+}
+
+/** Corner roundness offered by the Theme extension. */
+enum class CornerStyle(val displayName: String, val scale: Float) {
+    SQUARE("Square", 0.30f),
+    ROUNDED("Rounded", 1.0f),
+    EXTRA("Extra rounded", 1.65f);
+
+    companion object {
+        fun fromId(id: String?): CornerStyle =
+            entries.firstOrNull { it.name.equals(id, true) } ?: ROUNDED
+    }
+}
