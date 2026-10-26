@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -101,7 +100,7 @@ fun AddressBar(
         label = "progress"
     )
 
-    Box(modifier = modifier.fillMaxWidth().imePadding()) {
+    Box(modifier = modifier.fillMaxWidth()) {
         BarSurface(
             style = style,
             shape = RoundedCornerShape(26.dp),
@@ -168,16 +167,24 @@ fun AddressBar(
                         },
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
-                            if (value.text.isEmpty()) {
+                            if (focused) {
+                                // While editing, the field scrolls with the caret.
+                                inner()
+                            } else {
+                                // At rest, show the address on one line and let it
+                                // ellipsise instead of clipping mid-word.
+                                val shown = UrlUtils.displayUrl(rawUrl)
                                 Text(
-                                    text = "Search or enter website",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = secondaryColor,
+                                    text = shown.ifBlank { "Search or enter website" },
+                                    style = TextStyle(
+                                        color = if (shown.isBlank()) secondaryColor else contentColor,
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            inner()
                         }
                     }
                 )
