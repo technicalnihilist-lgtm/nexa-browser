@@ -2,6 +2,10 @@
 
 # Glass Browser
 
+> **Version 1.1** · [**Download the signed APK**](https://github.com/technicalnihilist-lgtm/nexa-browser/releases/download/glass-browser-v1.1/GlassBrowser.apk) · [all releases](https://github.com/technicalnihilist-lgtm/nexa-browser/releases)
+>
+> 89 KB · Android 7.0+ · no ads, no account, no analytics
+
 A complete, working Android web browser with a liquid-glass interface.
 The chrome is a single HTML/CSS file; the pages are rendered by the system
 Android **WebView** (Chromium). Nothing is a mock-up — it loads real sites,
