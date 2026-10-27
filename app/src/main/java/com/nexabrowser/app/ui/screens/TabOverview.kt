@@ -1,6 +1,13 @@
 package com.nexabrowser.app.ui.screens
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -138,15 +145,39 @@ fun TabOverview(
     }
 }
 
+/**
+ * Card motion: springs in from slightly small and transparent when it first
+ * appears, and presses down a touch under the finger.
+ */
+@Composable
+private fun Modifier.cardMotion(pressed: Boolean): Modifier {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 260f)) }
+    val press by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+        label = "cardPress"
+    )
+    return this.graphicsLayer {
+        val s = (0.86f + 0.14f * appear.value) * press
+        scaleX = s
+        scaleY = s
+        alpha = appear.value.coerceIn(0f, 1f)
+    }
+}
+
 @Composable
 private fun NewTabCard(onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     GlassSurface(
         shape = RoundedCornerShape(20.dp),
         elevation = 6.dp,
         modifier = Modifier
+            .cardMotion(pressed)
             .fillMaxWidth()
             .height(170.dp)
-            .clickable(onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.Add, contentDescription = "New tab", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
@@ -162,17 +193,20 @@ private fun TabCard(
     onClose: () -> Unit,
     onDuplicate: () -> Unit
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     GlassSurface(
         shape = RoundedCornerShape(20.dp),
         elevation = if (selected) 14.dp else 6.dp,
         modifier = Modifier
+            .cardMotion(pressed)
             .fillMaxWidth()
             .height(170.dp)
             .then(
                 if (selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(20.dp))
                 else Modifier
             )
-            .clickable(onClick = onSelect)
+            .clickable(interactionSource = interaction, indication = null, onClick = onSelect)
     ) {
         Column(Modifier.fillMaxSize()) {
             Box(

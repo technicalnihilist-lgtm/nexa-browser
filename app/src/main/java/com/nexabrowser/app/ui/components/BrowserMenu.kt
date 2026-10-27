@@ -31,7 +31,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.nexabrowser.app.ui.theme.GlassSurface
+import com.nexabrowser.app.ui.theme.LocalNexaColors
 
 /** The browser menu, presented as a bottom sheet like Safari's. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,13 +59,27 @@ fun BrowserMenuSheet(
 ) {
     if (!visible) return
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    val extras = LocalNexaColors.current
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        // The sheet is a pane of liquid glass over the blurred page.
+        containerColor = Color.Transparent,
+        tonalElevation = 0.dp,
+        scrimColor = Color.Black.copy(alpha = 0.22f),
+        dragHandle = null
+    ) {
+        GlassSurface(
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp, bottomStart = 32.dp, bottomEnd = 32.dp),
+            tint = extras.glassTint.copy(alpha = if (extras.isDark) 0.78f else 0.80f),
+            elevation = 16.dp
+        ) {
         Column(
             Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .navigationBarsPadding()
-                .padding(bottom = 12.dp)
+                .padding(top = 10.dp, bottom = 12.dp)
         ) {
             MenuRow(Icons.Filled.Add, "New Tab", onNewTab)
             MenuRow(NexaIcons.VisibilityOff, "New Private Tab", onNewPrivateTab)
@@ -78,6 +96,7 @@ fun BrowserMenuSheet(
             MenuToggleRow(NexaIcons.Computer, "Request Desktop Site", desktopSiteEnabled, onToggleDesktopSite)
             HorizontalDivider(Modifier.padding(vertical = 4.dp))
             MenuRow(Icons.Filled.Settings, "Settings", onSettings)
+        }
         }
     }
 }

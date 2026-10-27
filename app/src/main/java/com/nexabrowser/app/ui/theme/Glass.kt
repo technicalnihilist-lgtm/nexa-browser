@@ -159,8 +159,8 @@ fun Modifier.backdropBlur(active: Boolean, radius: Dp = 18.dp): Modifier =
 
 /** True when the bar should render as the frosted pane for the active theme. */
 @Composable
-private fun barUsesGlass(style: AddressBarStyle): Boolean =
-    style == AddressBarStyle.LIQUID_GLASS && LocalNexaColors.current.isDark
+@Suppress("UNUSED_PARAMETER")
+private fun barUsesGlass(style: AddressBarStyle): Boolean = true
 
 /**
  * The surface used by the address bar and the bottom toolbar. The style is
@@ -176,7 +176,16 @@ fun BarSurface(
     content: @Composable BoxScope.() -> Unit
 ) {
     if (barUsesGlass(style)) {
-        GlassSurface(modifier = modifier, shape = shape, elevation = elevation, content = content)
+        // Bars are more transparent than ordinary panes so the page reads through them.
+        val extras = LocalNexaColors.current
+        val barTint = extras.glassTint.copy(alpha = if (extras.isDark) 0.56f else 0.60f)
+        GlassSurface(
+            modifier = modifier,
+            shape = shape,
+            tint = barTint,
+            elevation = elevation,
+            content = content
+        )
         return
     }
 
@@ -231,7 +240,7 @@ fun barBorderColor(style: AddressBarStyle): Color = when {
  */
 @Composable
 fun barChromeColor(style: AddressBarStyle): Color = when {
-    barUsesGlass(style) -> Color(0xFF0F1114)
+    barUsesGlass(style) -> Color.Transparent
     style == AddressBarStyle.SOLID_THEME -> MaterialTheme.colorScheme.background
     else -> Color(0xFFF1F3F7)
 }
@@ -246,9 +255,25 @@ fun barIsGlass(style: AddressBarStyle): Boolean = barUsesGlass(style)
  */
 @Composable
 fun dockCapsuleColors(style: AddressBarStyle): Pair<Color, Color> = when {
-    barUsesGlass(style) -> Color(0x33FFFFFF) to Color(0x4DFFFFFF)
+    barUsesGlass(style) ->
+        if (LocalNexaColors.current.isDark) Color(0x33FFFFFF) to Color(0x4DFFFFFF)
+        else Color(0x14000000) to Color(0x66FFFFFF)
     style == AddressBarStyle.SOLID_THEME ->
         MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) to
             MaterialTheme.colorScheme.primary.copy(alpha = 0.26f)
     else -> Color(0xFFE7EDF9) to Color(0x16000000)
+}
+
+
+/**
+ * Soft "scroll edge" fade that sits behind a floating glass bar so the bar stays
+ * readable over busy pages, like the edge effect in iOS 26. It is a plain
+ * gradient, so it costs nothing at draw time.
+ */
+@Composable
+fun EdgeFade(top: Boolean, modifier: Modifier = Modifier) {
+    val base = MaterialTheme.colorScheme.background
+    val solid = base.copy(alpha = 0.72f)
+    val colors = if (top) listOf(solid, Color.Transparent) else listOf(Color.Transparent, solid)
+    Box(modifier.background(Brush.verticalGradient(colors)))
 }

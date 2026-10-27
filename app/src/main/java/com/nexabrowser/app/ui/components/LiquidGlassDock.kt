@@ -7,6 +7,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -147,8 +149,14 @@ fun LiquidGlassDock(
                         selected -> contentColor
                         else -> secondaryColor
                     }
+                    val interaction = remember { MutableInteractionSource() }
+                    val pressed by interaction.collectIsPressedAsState()
                     val iconScale by animateFloatAsState(
-                        targetValue = if (selected) 1.24f else 1f,
+                        targetValue = when {
+                            pressed -> 1.38f
+                            selected -> 1.24f
+                            else -> 1f
+                        },
                         animationSpec = spring(dampingRatio = 0.62f, stiffness = 420f),
                         label = "dockIconScale"
                     )
@@ -157,7 +165,11 @@ fun LiquidGlassDock(
                             .weight(1f)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(21.dp))
-                            .clickable(enabled = action.enabled) { action.onClick() },
+                            .clickable(
+                                interactionSource = interaction,
+                                indication = null,
+                                enabled = action.enabled
+                            ) { action.onClick() },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {

@@ -4,6 +4,8 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 
@@ -14,7 +16,12 @@ import androidx.compose.ui.viewinterop.AndroidView
  * their scroll position and history across switches without leaking.
  */
 @Composable
-fun WebViewHost(webView: WebView?, modifier: Modifier = Modifier) {
+fun WebViewHost(
+    webView: WebView?,
+    modifier: Modifier = Modifier,
+    onScrolled: (scrollY: Int, delta: Int) -> Unit = { _, _ -> }
+) {
+    val latestOnScrolled by rememberUpdatedState(onScrolled)
     AndroidView(
         factory = { context ->
             FrameLayout(context).apply {
@@ -26,6 +33,10 @@ fun WebViewHost(webView: WebView?, modifier: Modifier = Modifier) {
         },
         modifier = modifier,
         update = { frame ->
+            // Purely visual: lets the chrome collapse and return as the page scrolls.
+            webView?.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                latestOnScrolled(scrollY, scrollY - oldScrollY)
+            }
             val current = if (frame.childCount > 0) frame.getChildAt(0) else null
             if (current !== webView) {
                 frame.removeAllViews()

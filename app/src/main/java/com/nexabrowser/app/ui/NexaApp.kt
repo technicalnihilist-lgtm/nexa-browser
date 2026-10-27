@@ -1,6 +1,13 @@
 package com.nexabrowser.app.ui
 
 import android.app.Activity
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -118,7 +125,17 @@ fun NexaApp(
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            when (uiState.screen) {
+            // Screens glide in and out with a soft scale + fade, like iOS.
+            AnimatedContent(
+                targetState = uiState.screen,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    (fadeIn(tween(240, delayMillis = 40)) + scaleIn(tween(300), initialScale = 0.94f)) togetherWith
+                        (fadeOut(tween(160)) + scaleOut(tween(200), targetScale = 1.03f))
+                },
+                label = "screenTransition"
+            ) { screen ->
+            when (screen) {
                 NexaScreen.BROWSER -> BrowserScreen(
                     viewModel = viewModel,
                     uiState = uiState,
@@ -255,6 +272,7 @@ fun NexaApp(
                         modifier = Modifier.weight(1f)
                     )
                 }
+            }
             }
 
             SnackbarHost(

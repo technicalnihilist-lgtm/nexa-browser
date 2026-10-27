@@ -1,6 +1,15 @@
 package com.nexabrowser.app.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -39,6 +48,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,7 +71,7 @@ import com.nexabrowser.app.ui.components.WebViewHost
 import com.nexabrowser.app.ui.screens.StartPage
 import com.nexabrowser.app.ui.theme.GlassSurface
 import com.nexabrowser.app.ui.theme.backdropBlur
-import com.nexabrowser.app.ui.theme.barChromeColor
+import com.nexabrowser.app.ui.theme.EdgeFade
 
 /**
  * The browser surface: the live WebView (or the start page), the floating glass
@@ -87,11 +97,52 @@ fun BrowserScreen(
 
     val activeWebView = viewModel.tabManager.activeTab()?.webView
 
-    // The page is inset by the chrome height so a site's own header can never
-    // sit underneath the address bar (which reads as a second search bar).
+    // Chrome height. The page runs full-bleed *under* the glass bars; it is only
+    // inset while the page sits at its very top with the bars fully open, so a
+    // site's own header is never hidden behind the address bar on arrival.
     val systemInsets = WindowInsets.systemBars.asPaddingValues()
     val chromeTop = systemInsets.calculateTopPadding() + 68.dp
     val chromeBottom = systemInsets.calculateBottomPadding() + 82.dp
+
+    val density = LocalDensity.current
+    val collapseThreshold = with(density) { 28.dp.roundToPx() }
+    val expandThreshold = with(density) { 14.dp.roundToPx() }
+
+    // Safari-style chrome: bars shrink away while reading, return on scroll up.
+    var collapsed by remember { mutableStateOf(false) }
+    var atTop by remember { mutableStateOf(true) }
+    var scrollAccum by remember { mutableStateOf(0) }
+
+    LaunchedEffect(activeWebView) {
+        collapsed = false
+        scrollAccum = 0
+        atTop = (activeWebView?.scrollY ?: 0) <= 0
+    }
+    LaunchedEffect(activeTab?.url) {
+        collapsed = false
+        scrollAccum = 0
+        atTop = true
+    }
+
+    val showingPage = activeTab != null && !activeTab.showStartPage
+    val chromeCollapsed = collapsed && showingPage && !uiState.findActive
+
+    val collapse by animateFloatAsState(
+        targetValue = if (chromeCollapsed) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 320f),
+        label = "chromeCollapse"
+    )
+    val insetOn = !chromeCollapsed && atTop
+    val topInset by animateDpAsState(
+        targetValue = if (insetOn) chromeTop else 0.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 380f),
+        label = "topInset"
+    )
+    val bottomInset by animateDpAsState(
+        targetValue = if (insetOn) chromeBottom else 0.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 380f),
+        label = "bottomInset"
+    )
 
     Box(modifier.fillMaxSize()) {
         // ---- Page content -------------------------------------------------
@@ -115,7 +166,24 @@ fun BrowserScreen(
                     activeWebView,
                     Modifier
                         .fillMaxSize()
-                        .padding(top = chromeTop, bottom = chromeBottom)
+                        .padding(top = topInset, bottom = bottomInset),
+                    onScrolled = { y, dy ->
+                        atTop = y <= 0
+                        if (y <= 0) {
+                            collapsed = false
+                            scrollAccum = 0
+                        } else {
+                            if ((dy > 0 && scrollAccum < 0) || (dy < 0 && scrollAccum > 0)) scrollAccum = 0
+                            scrollAccum += dy
+                            if (scrollAccum > collapseThreshold) {
+                                collapsed = true
+                                scrollAccum = 0
+                            } else if (scrollAccum < -expandThreshold) {
+                                collapsed = false
+                                scrollAccum = 0
+                            }
+                        }
+                    }
                 )
             }
 
@@ -131,12 +199,39 @@ fun BrowserScreen(
             }
         }
 
+        // ---- Edge fades: keep the glass legible over busy pages ------------
+        if (showingPage) {
+            EdgeFade(
+                top = true,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(chromeTop + 14.dp)
+                    .graphicsLayer { alpha = 1f - 0.5f * collapse }
+            )
+            EdgeFade(
+                top = false,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(chromeBottom + 14.dp)
+                    .graphicsLayer { alpha = 1f - collapse }
+            )
+        }
+
         // ---- Top: address bar and find bar --------------------------------
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .background(barChromeColor(settings.addressBarStyle))
+                .graphicsLayer {
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                    val s = 1f - 0.16f * collapse
+                    scaleX = s
+                    scaleY = s
+                    translationY = -10.dp.toPx() * collapse
+                    alpha = 1f - 0.12f * collapse
+                }
                 .statusBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -162,6 +257,20 @@ fun BrowserScreen(
                     onClose = viewModel::hideFind
                 )
             }
+        }
+
+        // While collapsed, a tap on the small top pill brings the bars back.
+        if (chromeCollapsed) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(chromeTop)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { collapsed = false }
+            )
         }
 
         // ---- Bottom: toolbar ---------------------------------------------
@@ -196,7 +305,14 @@ fun BrowserScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .background(barChromeColor(settings.addressBarStyle))
+                .graphicsLayer {
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                    val s = 1f - 0.10f * collapse
+                    scaleX = s
+                    scaleY = s
+                    translationY = 150.dp.toPx() * collapse
+                    alpha = 1f - collapse
+                }
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         )
