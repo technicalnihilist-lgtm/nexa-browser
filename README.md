@@ -327,6 +327,24 @@ possible it is used: the page genuinely blurs behind the browser menu via a
 
 ---
 
+## Glass Browser (second app in this repository)
+
+`glass-browser/` holds **Glass Browser** — a separate, much smaller Android
+browser: a single-file HTML chrome over a native WebView content surface,
+written in Java with no Gradle, shipped as an 85 KB signed APK. It shares the
+liquid-glass look and nothing else: different package
+(`com.rajok.glassbrowser`), different architecture, its own history.
+
+Highlights: real WebView rendering (no iframe, so sites that forbid embedding
+still load), pop-up to new tab, downloads, file pickers, per-tab back/forward
+that collapses `http → https → www` redirects, and a screenshot button that
+captures the whole window with `PixelCopy` into `Pictures/Glass Browser`.
+
+See [`glass-browser/README.md`](glass-browser/README.md) for details, the build
+script and screenshots.
+
+---
+
 ## Licence
 
 MIT.
