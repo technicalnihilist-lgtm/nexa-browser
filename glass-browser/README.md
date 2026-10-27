@@ -12,7 +12,7 @@ keeps real tabs and history, downloads real files and takes real screenshots.
 * **Min SDK:** 24 (Android 7.0) · **Target / compile SDK:** 34 (Android 14)
 * **Language / UI:** Java + a single-file HTML/CSS/JS interface
 * **Rendering:** `android.webkit.WebView` (Chromium)
-* **APK size:** ~85 KB, signed and installable as-is
+* **APK size:** ~90 KB, signed and installable as-is
 
 ---
 
@@ -28,13 +28,20 @@ Glass Browser splits the job in two:
 | Layer | What it is | Job |
 | --- | --- | --- |
 | **Chrome** | a `WebView` loading `assets/index.html`, transparent, pinned to the bottom | address bar, tabs, sheets, settings — all the glass UI |
-| **Content** | a second `WebView`, full size, behind the chrome | renders the actual page with real Chromium |
+| **Content** | one `WebView` per tab, full size, behind the chrome | renders the actual page with real Chromium |
 
 The two talk over a `@JavascriptInterface` bridge. The chrome resizes itself on
 demand (`setChrome(px)`): a ~120 dp strip while you browse, and full-screen the
 moment the start page, tab switcher, a sheet or the address-bar suggestions
 appear — so the glass panels float over the live page with the page visible
 behind them.
+
+Every tab owns its own content WebView, so switching tabs keeps the page exactly
+as you left it — scroll position, half-filled forms, a playing video. Only the
+visible one is drawn; the rest sit paused behind it. Live WebViews are capped by
+the device's memory class (2–6, from `ActivityManager.getMemoryClass()`) and the
+least recently used one is destroyed when the cap is reached. Its URL lives in
+the tab list, so returning to it reloads the page rather than losing the tab.
 
 ---
 
@@ -57,6 +64,17 @@ behind them.
 * Hardware back closes the open sheet, then the tab switcher, then walks the
   tab's history, then exits.
 
+### Heavy pages
+* The renderer dying — what Chromium does when a very large page exhausts memory —
+  is caught with `onRenderProcessGone` instead of taking the whole app down with
+  it. The dead views are torn down and the current tab reloads.
+* Progress callbacks are throttled (one every 5%, not one per percent), and
+  `localStorage` writes are debounced, so single-page apps that rewrite their URL
+  on every scroll cannot stall the UI.
+* Pop-ups use a throwaway WebView to capture the target URL; it is removed and
+  destroyed as soon as the URL is known, and after 4 seconds if the popup never
+  navigates.
+
 ### Screenshots
 The camera button in the toolbar captures the **whole window** with
 `PixelCopy` — page *and* toolbar, exactly what you see — and writes a PNG to
@@ -67,6 +85,9 @@ plus a media scan on Android 9 and below). A toast confirms the save.
 * Normal and private tabs, with private tabs kept out of history and out of
   `localStorage` persistence.
 * Tab switcher with live coloured previews, close buttons, and per-mode lists.
+* Each tab keeps its own WebView, so switching back to a tab resumes it instead
+  of reloading. The tab list can never empty itself: closing the last tab opens
+  a fresh one.
 * Tabs, history (400 entries), bookmarks and favourites survive app restarts.
 
 ### Start page
@@ -173,6 +194,8 @@ callback, `window.BN.on(json)`:
   This is what lets tabs be independent, but it means a single-page app that
   rewrites its URL with `pushState` will replace the history entry rather than
   add one.
+* **Tabs beyond the live cap reload when you return to them.** On a low-memory
+  device that cap can be as low as two WebViews.
 * **Tested in a browser engine and verified structurally, not on a physical
   handset.** The UI logic has an automated test pass (start page, navigation,
   redirect collapsing, back/forward, tab creation, error panel, chrome
