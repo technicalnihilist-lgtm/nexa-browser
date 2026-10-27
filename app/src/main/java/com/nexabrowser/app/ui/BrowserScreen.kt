@@ -1,5 +1,7 @@
 package com.nexabrowser.app.ui
 
+import com.nexabrowser.app.ui.components.LiquidGlassNav
+import androidx.compose.foundation.layout.offset
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -92,62 +94,35 @@ fun BrowserScreen(
     onShare: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Which dock slot the glass capsule rests on; it glides when this changes.
-    var dockIndex by remember { mutableStateOf(0) }
-
     val activeWebView = viewModel.tabManager.activeTab()?.webView
 
-    // Chrome height. The page runs full-bleed *under* the glass bars; it is only
-    // inset while the page sits at its very top with the bars fully open, so a
-    // site's own header is never hidden behind the address bar on arrival.
     val systemInsets = WindowInsets.systemBars.asPaddingValues()
-    val chromeTop = systemInsets.calculateTopPadding() + 68.dp
-    val chromeBottom = systemInsets.calculateBottomPadding() + 82.dp
+    val statusBarHeight = systemInsets.calculateTopPadding()
 
     val density = LocalDensity.current
-    val collapseThreshold = with(density) { 28.dp.roundToPx() }
-    val expandThreshold = with(density) { 14.dp.roundToPx() }
+    val hideThreshold = with(density) { 26.dp.roundToPx() }
+    val showThreshold = with(density) { 12.dp.roundToPx() }
 
-    // Safari-style chrome: bars shrink away while reading, return on scroll up.
-    var collapsed by remember { mutableStateOf(false) }
-    var atTop by remember { mutableStateOf(true) }
+    // The toolbar slides away while reading and returns on an upward scroll,
+    // as the reference does.
+    var toolbarHidden by remember { mutableStateOf(false) }
     var scrollAccum by remember { mutableStateOf(0) }
 
-    LaunchedEffect(activeWebView) {
-        collapsed = false
-        scrollAccum = 0
-        atTop = (activeWebView?.scrollY ?: 0) <= 0
-    }
     LaunchedEffect(activeTab?.url) {
-        collapsed = false
+        toolbarHidden = false
         scrollAccum = 0
-        atTop = true
     }
 
-    val showingPage = activeTab != null && !activeTab.showStartPage
-    val chromeCollapsed = collapsed && showingPage && !uiState.findActive
+    val footerShift by animateDpAsState(
+        targetValue = if (toolbarHidden) 200.dp else 0.dp,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f),
+        label = "footerShift"
+    )
 
-    val collapse by animateFloatAsState(
-        targetValue = if (chromeCollapsed) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 320f),
-        label = "chromeCollapse"
-    )
-    val insetOn = !chromeCollapsed && atTop
-    val topInset by animateDpAsState(
-        targetValue = if (insetOn) chromeTop else 0.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 380f),
-        label = "topInset"
-    )
-    val bottomInset by animateDpAsState(
-        targetValue = if (insetOn) chromeBottom else 0.dp,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 380f),
-        label = "bottomInset"
-    )
+    val progress = (activeTab?.progress ?: 0).coerceIn(0, 100)
 
     Box(modifier.fillMaxSize()) {
-        // ---- Page content -------------------------------------------------
-        // The menu opens over this, so the page genuinely blurs behind the glass
-        // sheet (RenderEffect, API 31+). Nothing else blocks navigation.
+        // ---- Page ------------------------------------------------------
         Box(Modifier.fillMaxSize().backdropBlur(uiState.menuOpen, 22.dp)) {
             if (activeTab == null || activeTab.showStartPage) {
                 StartPage(
@@ -166,20 +141,19 @@ fun BrowserScreen(
                     activeWebView,
                     Modifier
                         .fillMaxSize()
-                        .padding(top = topInset, bottom = bottomInset),
+                        .padding(top = statusBarHeight),
                     onScrolled = { y, dy ->
-                        atTop = y <= 0
                         if (y <= 0) {
-                            collapsed = false
+                            toolbarHidden = false
                             scrollAccum = 0
                         } else {
                             if ((dy > 0 && scrollAccum < 0) || (dy < 0 && scrollAccum > 0)) scrollAccum = 0
                             scrollAccum += dy
-                            if (scrollAccum > collapseThreshold) {
-                                collapsed = true
+                            if (scrollAccum > hideThreshold) {
+                                toolbarHidden = true
                                 scrollAccum = 0
-                            } else if (scrollAccum < -expandThreshold) {
-                                collapsed = false
+                            } else if (scrollAccum < -showThreshold) {
+                                toolbarHidden = false
                                 scrollAccum = 0
                             }
                         }
@@ -199,54 +173,27 @@ fun BrowserScreen(
             }
         }
 
-        // ---- Edge fades: keep the glass legible over busy pages ------------
-        if (showingPage) {
-            EdgeFade(
-                top = true,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .height(chromeTop + 14.dp)
-                    .graphicsLayer { alpha = 1f - 0.5f * collapse }
-            )
-            EdgeFade(
-                top = false,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(chromeBottom + 14.dp)
-                    .graphicsLayer { alpha = 1f - collapse }
+        // ---- 3dp loading bar at the very top ---------------------------
+        if (progress in 1..99) {
+            Box(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .fillMaxWidth(progress / 100f)
+                    .height(3.dp)
+                    .background(MaterialTheme.colorScheme.primary)
             )
         }
 
-        // ---- Top: address bar and find bar --------------------------------
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .graphicsLayer {
-                    transformOrigin = TransformOrigin(0.5f, 0f)
-                    val s = 1f - 0.16f * collapse
-                    scaleX = s
-                    scaleY = s
-                    translationY = -10.dp.toPx() * collapse
-                    alpha = 1f - 0.12f * collapse
-                }
-                .statusBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            AddressBar(
-                tab = activeTab,
-                isLoading = activeTab?.isLoading == true,
-                progress = activeTab?.progress ?: 0,
-                style = settings.addressBarStyle,
-                onNavigate = viewModel::submitAddress,
-                onReload = viewModel::reload,
-                onStop = viewModel::stopLoading
-            )
-
-            if (uiState.findActive) {
+        // ---- Find on page ---------------------------------------------
+        if (uiState.findActive) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
                 FindBar(
                     query = uiState.findQuery,
                     current = uiState.findCurrent,
@@ -259,63 +206,63 @@ fun BrowserScreen(
             }
         }
 
-        // While collapsed, a tap on the small top pill brings the bars back.
-        if (chromeCollapsed) {
-            Box(
-                Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .height(chromeTop)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { collapsed = false }
-            )
+        // ---- "Show toolbar" pill while hidden -------------------------
+        AnimatedVisibility(
+            visible = toolbarHidden,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 14.dp)
+        ) {
+            GlassSurface(shape = RoundedCornerShape(14.dp), elevation = 8.dp) {
+                Text(
+                    text = "Show toolbar",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { toolbarHidden = false }
+                        .padding(horizontal = 26.dp, vertical = 8.dp)
+                )
+            }
         }
 
-        // ---- Bottom: toolbar ---------------------------------------------
-        LiquidGlassDock(
-            activeIndex = dockIndex,
-            style = settings.addressBarStyle,
-            actions = listOf(
-                DockAction(
-                    label = "Back",
-                    icon = Icons.AutoMirrored.Filled.ArrowBack,
-                    enabled = activeTab?.canGoBack == true
-                ) { dockIndex = 0; viewModel.goBack() },
-                DockAction(
-                    label = "Next",
-                    icon = Icons.AutoMirrored.Filled.ArrowForward,
-                    enabled = activeTab?.canGoForward == true
-                ) { dockIndex = 1; viewModel.goForward() },
-                DockAction(label = "Share", icon = Icons.Filled.Share) {
-                    dockIndex = 2; onShare()
-                },
-                DockAction(
-                    label = if (isBookmarked) "Saved" else "Save",
-                    icon = if (isBookmarked) Icons.Filled.Star else NexaIcons.StarBorder
-                ) { dockIndex = 3; viewModel.toggleBookmark() },
-                DockAction(label = "Tabs", icon = NexaIcons.Tab) {
-                    dockIndex = 4; viewModel.setScreen(NexaScreen.TABS)
-                },
-                DockAction(label = "More", icon = Icons.Filled.Menu) {
-                    dockIndex = 5; viewModel.openMenu()
-                }
-            ),
+        // ---- Bottom: address bar over navigation ----------------------
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .graphicsLayer {
-                    transformOrigin = TransformOrigin(0.5f, 1f)
-                    val s = 1f - 0.10f * collapse
-                    scaleX = s
-                    scaleY = s
-                    translationY = 150.dp.toPx() * collapse
-                    alpha = 1f - collapse
-                }
+                .offset(y = footerShift)
                 .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        )
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AddressBar(
+                tab = activeTab,
+                style = settings.addressBarStyle,
+                isLoading = activeTab?.isLoading == true,
+                onNavigate = viewModel::submitAddress,
+                onReload = { viewModel.reload() },
+                onStop = { viewModel.stopLoading() },
+                onSiteSettings = viewModel::openMenu
+            )
+            LiquidGlassNav(
+                canGoBack = activeTab?.canGoBack == true,
+                canGoForward = activeTab?.canGoForward == true,
+                isBookmarked = isBookmarked,
+                tabCount = tabCount,
+                style = settings.addressBarStyle,
+                onBack = { viewModel.goBack() },
+                onForward = { viewModel.goForward() },
+                onShare = onShare,
+                onBookmarks = { viewModel.setScreen(NexaScreen.BOOKMARKS) },
+                onTabs = { viewModel.setScreen(NexaScreen.TABS) }
+            )
+        }
     }
 }
 

@@ -45,35 +45,24 @@ fun GlassSurface(
     content: @Composable BoxScope.() -> Unit
 ) {
     val isDark = LocalNexaColors.current.isDark
-    val sheen = if (isDark) 0.20f else 0.55f
 
-    // 1. Body: a three-stop vertical gradient so the pane has weight, not a flat wash.
+    // Body: a three-stop vertical gradient so the pane has weight.
     val body = Brush.verticalGradient(
         colors = listOf(
             tint.copy(alpha = (tint.alpha * 1.10f).coerceAtMost(1f)),
             tint,
-            tint.copy(alpha = tint.alpha * 0.86f)
+            tint.copy(alpha = tint.alpha * 0.90f)
         )
     )
 
-    // 2. Specular sheen: light refracting across the pane, corner to corner.
+    // Specular sheen at 135°, corner to corner, as in the reference.
+    val sheenAlpha = if (isDark) 0.22f else 0.45f
     val specular = Brush.linearGradient(
-        colors = listOf(
-            Color.White.copy(alpha = sheen),
-            Color.White.copy(alpha = sheen * 0.16f),
-            Color.Transparent,
-            Color.White.copy(alpha = sheen * 0.10f)
-        ),
-        start = Offset.Zero,
-        end = Offset.Infinite
-    )
-
-    // 3. Rim light: a brighter edge where the pane meets the light.
-    val rim = Brush.linearGradient(
-        colors = listOf(
-            Color.White.copy(alpha = if (isDark) 0.38f else 0.80f),
-            Color.White.copy(alpha = 0.08f),
-            Color.White.copy(alpha = if (isDark) 0.22f else 0.42f)
+        colorStops = arrayOf(
+            0.00f to Color.White.copy(alpha = sheenAlpha),
+            0.40f to Color.Transparent,
+            0.60f to Color.Transparent,
+            1.00f to Color.White.copy(alpha = sheenAlpha * 0.55f)
         ),
         start = Offset.Zero,
         end = Offset.Infinite
@@ -85,43 +74,25 @@ fun GlassSurface(
             .clip(shape)
             .background(body)
             .background(specular)
-            .border(BorderStroke(0.75.dp, border), shape)
-            .border(BorderStroke(1.dp, rim), shape)
-            // Chromatic dispersion: a very faint cyan-to-violet fringe where the
-            // pane bends light, as the reference design shows on glass edges.
-            .border(
-                BorderStroke(
-                    0.9.dp,
-                    Brush.linearGradient(
-                        listOf(
-                            Color(0x2E7FD4FF),
-                            Color(0x00FFFFFF),
-                            Color(0x26C79BFF)
-                        ),
-                        start = Offset.Zero,
-                        end = Offset.Infinite
-                    )
-                ),
-                shape
-            )
+            .border(BorderStroke(1.dp, border), shape)
     ) {
-        // Top inner highlight — the lit lip of the glass.
+        // Inset top highlight — light catching the upper edge.
         Box(
             Modifier
                 .align(Alignment.TopCenter)
-                .fillMaxWidth(0.92f)
-                .height(1.dp)
+                .fillMaxWidth(0.94f)
+                .height(1.5.dp)
                 .background(
                     Brush.horizontalGradient(
                         listOf(
                             Color.Transparent,
-                            Color.White.copy(alpha = if (isDark) 0.30f else 0.90f),
+                            Color.White.copy(alpha = if (isDark) 0.42f else 0.75f),
                             Color.Transparent
                         )
                     )
                 )
         )
-        // Bottom inner shade — the thickness of the pane.
+        // Inset bottom line — the thickness of the glass.
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -129,7 +100,11 @@ fun GlassSurface(
                 .height(1.dp)
                 .background(
                     Brush.horizontalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.18f), Color.Transparent)
+                        listOf(
+                            Color.Transparent,
+                            Color.White.copy(alpha = if (isDark) 0.14f else 0.20f),
+                            Color.Transparent
+                        )
                     )
                 )
         )
@@ -137,10 +112,6 @@ fun GlassSurface(
     }
 }
 
-/**
- * The next-generation pane: identical to [GlassSurface] but named for what it is,
- * so new surfaces read clearly at the call site.
- */
 @Composable
 fun LiquidGlass(
     modifier: Modifier = Modifier,

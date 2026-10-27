@@ -86,7 +86,7 @@ enum class AddressBarStyle {
 
 /** Accent choices offered by the Theme extension. */
 enum class AccentPreset(val argb: Long, val displayName: String) {
-    BLUE(0xFF2F6BFF, "Nexa Blue"),
+    BLUE(0xFF007AFF, "Nexa Blue"),
     TEAL(0xFF12B5A5, "Teal"),
     VIOLET(0xFF8B5CF6, "Violet"),
     ROSE(0xFFEC4899, "Rose"),
