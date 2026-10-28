@@ -329,6 +329,11 @@ possible it is used: the page genuinely blurs behind the browser menu via a
 
 ## Glass Browser (second app in this repository)
 
+> **Glass Browser now has its own repository:
+> [technicalnihilist-lgtm/glass-browser](https://github.com/technicalnihilist-lgtm/glass-browser).**
+> Development continues there — this folder is a snapshot of v1.1 and is no
+> longer updated. It is kept here only so existing links keep working.
+
 `glass-browser/` holds **Glass Browser** — a separate, much smaller Android
 browser: a single-file HTML chrome over a native WebView content surface,
 written in Java with no Gradle, shipped as an 85 KB signed APK. It shares the
