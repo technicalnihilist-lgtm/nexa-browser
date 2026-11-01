@@ -17,6 +17,14 @@ class DelegatingActivityHost : BrowserActivityHost {
     @Volatile
     var delegate: BrowserActivityHost? = null
 
+    /**
+     * Clears the delegate only when [host] is still the installed one, so an
+     * outgoing Activity cannot take the host away from its successor.
+     */
+    fun clearIf(host: BrowserActivityHost) {
+        if (delegate === host) delegate = null
+    }
+
     override fun onShowFileChooser(
         tabId: String,
         fileChooserParams: WebChromeClient.FileChooserParams,

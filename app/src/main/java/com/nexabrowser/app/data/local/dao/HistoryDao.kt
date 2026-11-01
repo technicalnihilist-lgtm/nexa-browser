@@ -15,6 +15,15 @@ interface HistoryDao {
     @Query("SELECT * FROM history WHERE title LIKE '%' || :query || '%' OR url LIKE '%' || :query || '%' ORDER BY visitedAt DESC")
     fun search(query: String): Flow<List<HistoryEntity>>
 
+    /**
+     * The newest [limit] visits. The start page shows only a handful of rows, so
+     * it subscribes to this instead of [observeAll]: reading (and mapping) the
+     * entire table once per completed page load was pure waste, and it grew with
+     * every site the user had ever visited.
+     */
+    @Query("SELECT * FROM history ORDER BY visitedAt DESC LIMIT :limit")
+    fun observeRecent(limit: Int): Flow<List<HistoryEntity>>
+
     @Query("SELECT * FROM history WHERE url = :url ORDER BY visitedAt DESC LIMIT 1")
     suspend fun mostRecentForUrl(url: String): HistoryEntity?
 

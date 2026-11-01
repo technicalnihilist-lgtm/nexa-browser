@@ -93,6 +93,10 @@ class BrowserRepository(private val db: NexaDatabase) {
 
     suspend fun recentHistory(limit: Int): List<HistoryEntry> = historyDao.recent(limit).map { it.toDomain() }
 
+    /** Only the newest [limit] visits — what the start page renders. */
+    fun recentVisits(limit: Int = 6): Flow<List<HistoryEntry>> =
+        historyDao.observeRecent(limit).map { list -> list.map { it.toDomain() } }
+
     /** Frequently visited pages, computed from real history rows. */
     fun topSites(limit: Int = 12): Flow<List<TopSite>> =
         historyDao.topSites(limit).map { rows -> rows.map { TopSite(it.url, it.title, it.visits, it.lastVisit) } }

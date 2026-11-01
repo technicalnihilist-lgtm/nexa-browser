@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Pure sizing rules for stored favicons, kept free of Android types so they can
@@ -32,6 +33,46 @@ object FaviconSizing {
         val h = (height * scale).toInt().coerceAtLeast(1)
         return w to h
     }
+}
+
+/**
+ * Remembers which favicon files exist on disk.
+ *
+ * The icon composable asks "does this path exist?" while it is being drawn — for
+ * every row of the history, bookmark and reading-list lists, on every
+ * recomposition, i.e. dozens of times per frame while scrolling. Each of those
+ * questions used to be a stat() on the main thread. The answer cannot change
+ * except through [FaviconStore], so it is remembered here once and invalidated
+ * only by the writer. Keys are absolute paths; the map is bounded so a very long
+ * session cannot grow it without limit.
+ */
+object FaviconPathCache {
+
+    private val known = ConcurrentHashMap<String, Boolean>(64)
+
+    /** True when [path] is a file that exists. Never touches the disk twice. */
+    fun exists(path: String?): Boolean {
+        if (path.isNullOrBlank()) return false
+        known[path]?.let { return it }
+        val exists = runCatching { File(path).let { it.isFile && it.length() > 0 } }.getOrDefault(false)
+        if (known.size >= MAX_ENTRIES) known.clear()
+        known[path] = exists
+        return exists
+    }
+
+    /** Called by the store once it has written [path]. */
+    fun markStored(path: String) {
+        if (known.size >= MAX_ENTRIES) known.clear()
+        known[path] = true
+    }
+
+    fun forget(path: String?) {
+        if (path != null) known.remove(path)
+    }
+
+    fun clear() = known.clear()
+
+    private const val MAX_ENTRIES = 512
 }
 
 /**
@@ -96,12 +137,14 @@ class FaviconStore(private val context: Context) {
             if (scaled !== bitmap) scaled.recycle()
             synchronized(storedSizes) { storedSizes[host] = signature }
             synchronized(paths) { paths[host] = f.absolutePath }
+            FaviconPathCache.markStored(f.absolutePath)
             f.absolutePath
         }.getOrNull()
     }
 
     fun clear() {
         runCatching { dir.listFiles()?.forEach { it.delete() } }
+        FaviconPathCache.clear()
         synchronized(paths) { paths.clear() }
         synchronized(storedSizes) { storedSizes.clear() }
     }

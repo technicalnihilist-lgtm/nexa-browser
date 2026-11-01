@@ -128,22 +128,36 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState: StateFlow<BrowserUiState> = _uiState.asStateFlow()
 
+    // Eagerly shared: each of these is a small table, and keeping the value warm
+    // means a screen never shows its empty state for the first frame while the
+    // query runs. The UI only subscribes while that screen is actually visible,
+    // so a download progress tick no longer recomposes the browser surface.
     val bookmarks: StateFlow<List<Bookmark>> =
-        repository.bookmarks.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        repository.bookmarks.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val bookmarkFolders = repository.bookmarkFolders
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    /**
+     * The whole history is only needed by the History screen, which subscribes to
+     * [history] itself. The browser surface shows just the last few visits, and
+     * used to subscribe to the full table — so every completed page load re-read
+     * and re-mapped the entire history and recomposed the live browser for it.
+     */
     val history: StateFlow<List<HistoryEntry>> =
         repository.history.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val recentVisits: StateFlow<List<HistoryEntry>> =
+        repository.recentVisits(START_PAGE_VISITS)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val readingList: StateFlow<List<ReadingListItem>> =
-        repository.readingList.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        repository.readingList.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val shortcuts: StateFlow<List<Shortcut>> =
         repository.shortcuts.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val downloads: StateFlow<List<DownloadItem>> =
-        downloadRepository.downloads.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        downloadRepository.downloads.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val topSites: StateFlow<List<TopSite>> =
         repository.topSites(12).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val sitePermissions: StateFlow<List<SitePermissionRecord>> =
-        repository.sitePermissions.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        repository.sitePermissions.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val _isBookmarked = MutableStateFlow(false)
     val isBookmarked: StateFlow<Boolean> = _isBookmarked.asStateFlow()
@@ -743,6 +757,8 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     companion object {
+        /** How many recent visits the start page lists. */
+        private const val START_PAGE_VISITS = 6
         private const val HOUR = 60L * 60L * 1000L
         private const val WEEK = 7L * 24L * HOUR
 

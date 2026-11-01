@@ -80,14 +80,13 @@ fun NexaApp(
     val activeId by viewModel.tabManager.activeTabId.collectAsStateWithLifecycle()
     val privateMode by viewModel.tabManager.privateMode.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
-    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
-    val folders by viewModel.bookmarkFolders.collectAsStateWithLifecycle()
-    val history by viewModel.history.collectAsStateWithLifecycle()
-    val readingList by viewModel.readingList.collectAsStateWithLifecycle()
     val shortcuts by viewModel.shortcuts.collectAsStateWithLifecycle()
-    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
     val topSites by viewModel.topSites.collectAsStateWithLifecycle()
-    val permissions by viewModel.sitePermissions.collectAsStateWithLifecycle()
+    // Only the handful of visits the start page shows. The full history, the
+    // bookmark lists and the download list are collected inside the screens that
+    // display them (below), so a history write or a download progress tick no
+    // longer recomposes this root and the live WebView surface with it.
+    val recentVisits by viewModel.recentVisits.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -145,7 +144,7 @@ fun NexaApp(
                     settings = settings,
                     shortcuts = shortcuts,
                     topSites = topSites,
-                    recent = history.take(6),
+                    recent = recentVisits,
                     onOpenUrl = { url -> viewModel.submitAddress(url) },
                     onShare = {
                         activeTab?.url?.takeIf { it.isNotBlank() }?.let { shareText(context, it) }
@@ -171,55 +170,68 @@ fun NexaApp(
                     )
                 }
 
-                NexaScreen.BOOKMARKS -> Column(Modifier.fillMaxSize()) {
-                    ScreenTopBar(title = "Bookmarks", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
-                    BookmarksScreen(
-                        bookmarks = bookmarks,
-                        folders = folders,
-                        onOpen = { url -> viewModel.submitAddress(url); viewModel.setScreen(NexaScreen.BROWSER) },
-                        onDelete = viewModel::deleteBookmark,
-                        onUpdate = { b, t, u -> viewModel.updateBookmark(b, t, u) },
-                        onCreateFolder = viewModel::createFolder,
-                        modifier = Modifier.weight(1f)
-                    )
+                NexaScreen.BOOKMARKS -> {
+                    val bookmarks by viewModel.bookmarks.collectAsStateWithLifecycle()
+                    val folders by viewModel.bookmarkFolders.collectAsStateWithLifecycle()
+                    Column(Modifier.fillMaxSize()) {
+                        ScreenTopBar(title = "Bookmarks", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
+                        BookmarksScreen(
+                            bookmarks = bookmarks,
+                            folders = folders,
+                            onOpen = { url -> viewModel.submitAddress(url); viewModel.setScreen(NexaScreen.BROWSER) },
+                            onDelete = viewModel::deleteBookmark,
+                            onUpdate = { b, t, u -> viewModel.updateBookmark(b, t, u) },
+                            onCreateFolder = viewModel::createFolder,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
-                NexaScreen.HISTORY -> Column(Modifier.fillMaxSize()) {
-                    ScreenTopBar(title = "History", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
-                    HistoryScreen(
-                        history = history,
-                        onOpen = { url -> viewModel.submitAddress(url); viewModel.setScreen(NexaScreen.BROWSER) },
-                        onDelete = viewModel::deleteHistoryEntry,
-                        onClear = viewModel::clearHistory,
-                        modifier = Modifier.weight(1f)
-                    )
+                NexaScreen.HISTORY -> {
+                    val history by viewModel.history.collectAsStateWithLifecycle()
+                    Column(Modifier.fillMaxSize()) {
+                        ScreenTopBar(title = "History", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
+                        HistoryScreen(
+                            history = history,
+                            onOpen = { url -> viewModel.submitAddress(url); viewModel.setScreen(NexaScreen.BROWSER) },
+                            onDelete = viewModel::deleteHistoryEntry,
+                            onClear = viewModel::clearHistory,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
-                NexaScreen.DOWNLOADS -> Column(Modifier.fillMaxSize()) {
-                    ScreenTopBar(title = "Downloads", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
-                    DownloadsScreen(
-                        downloads = downloads,
-                        onOpen = { item -> viewModel.openDownloadedFile(context, item) },
-                        onCancel = viewModel::cancelDownload,
-                        onRetry = viewModel::retryDownload,
-                        onRemove = viewModel::removeDownload,
-                        onClearFinished = viewModel::clearFinishedDownloads,
-                        modifier = Modifier.weight(1f)
-                    )
+                NexaScreen.DOWNLOADS -> {
+                    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
+                    Column(Modifier.fillMaxSize()) {
+                        ScreenTopBar(title = "Downloads", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
+                        DownloadsScreen(
+                            downloads = downloads,
+                            onOpen = { item -> viewModel.openDownloadedFile(context, item) },
+                            onCancel = viewModel::cancelDownload,
+                            onRetry = viewModel::retryDownload,
+                            onRemove = viewModel::removeDownload,
+                            onClearFinished = viewModel::clearFinishedDownloads,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
-                NexaScreen.READING_LIST -> Column(Modifier.fillMaxSize()) {
-                    ScreenTopBar(title = "Reading List", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
-                    ReadingListScreen(
-                        items = readingList,
-                        onOpen = { item ->
-                            val target = item.archivePath?.takeIf { item.hasOfflineCopy } ?: item.url
-                            viewModel.submitAddress(target)
-                            viewModel.setScreen(NexaScreen.BROWSER)
-                        },
-                        onRemove = viewModel::removeFromReadingList,
-                        modifier = Modifier.weight(1f)
-                    )
+                NexaScreen.READING_LIST -> {
+                    val readingList by viewModel.readingList.collectAsStateWithLifecycle()
+                    Column(Modifier.fillMaxSize()) {
+                        ScreenTopBar(title = "Reading List", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
+                        ReadingListScreen(
+                            items = readingList,
+                            onOpen = { item ->
+                                val target = item.archivePath?.takeIf { item.hasOfflineCopy } ?: item.url
+                                viewModel.submitAddress(target)
+                                viewModel.setScreen(NexaScreen.BROWSER)
+                            },
+                            onRemove = viewModel::removeFromReadingList,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
 
                 NexaScreen.EXTENSIONS -> Column(Modifier.fillMaxSize()) {
@@ -240,37 +252,40 @@ fun NexaApp(
                     )
                 }
 
-                NexaScreen.SETTINGS -> Column(Modifier.fillMaxSize()) {
-                    ScreenTopBar(title = "Settings", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
-                    SettingsScreen(
-                        settings = settings,
-                        permissions = permissions,
-                        onSetSearchEngine = viewModel::setSearchEngine,
-                        onSetCustomSearch = viewModel::setCustomSearchUrl,
-                        onSetHomepage = viewModel::setHomepage,
-                        onSetTheme = viewModel::setTheme,
-                        onSetNewTab = viewModel::setNewTabBehavior,
-                        onSetTextZoom = viewModel::setTextZoom,
-                        onSetDesktopByDefault = viewModel::setDesktopByDefault,
-                        onSetJavaScript = viewModel::setJavaScriptEnabled,
-                        onSetPopups = viewModel::setPopupsEnabled,
-                        onSetCookies = viewModel::setCookiesEnabled,
-                        onSetSaveHistory = viewModel::setSaveHistory,
-                        onSetDoNotTrack = viewModel::setDoNotTrack,
-                        onSetSessionRestore = viewModel::setSessionRestore,
-                        onSetShowClock = viewModel::setShowClock,
-                        onSetBackground = viewModel::setStartBackground,
-                        onSetAddressBarStyle = viewModel::setAddressBarStyle,
-                        onSetWifiOnly = viewModel::setDownloadWifiOnly,
-                        onSetNotifications = viewModel::setShowDownloadNotifications,
-                        onClearHistory = { viewModel.clearHistory(HistoryRange.ALL) },
-                        onClearCache = viewModel::clearCache,
-                        onClearCookies = viewModel::clearCookies,
-                        onClearWebsiteData = viewModel::clearWebsiteData,
-                        onClearPermissions = viewModel::clearAllSitePermissions,
-                        onRevokePermission = viewModel::revokeSitePermission,
-                        modifier = Modifier.weight(1f)
-                    )
+                NexaScreen.SETTINGS -> {
+                    val permissions by viewModel.sitePermissions.collectAsStateWithLifecycle()
+                    Column(Modifier.fillMaxSize()) {
+                        ScreenTopBar(title = "Settings", onBack = { viewModel.setScreen(NexaScreen.BROWSER) })
+                        SettingsScreen(
+                            settings = settings,
+                            permissions = permissions,
+                            onSetSearchEngine = viewModel::setSearchEngine,
+                            onSetCustomSearch = viewModel::setCustomSearchUrl,
+                            onSetHomepage = viewModel::setHomepage,
+                            onSetTheme = viewModel::setTheme,
+                            onSetNewTab = viewModel::setNewTabBehavior,
+                            onSetTextZoom = viewModel::setTextZoom,
+                            onSetDesktopByDefault = viewModel::setDesktopByDefault,
+                            onSetJavaScript = viewModel::setJavaScriptEnabled,
+                            onSetPopups = viewModel::setPopupsEnabled,
+                            onSetCookies = viewModel::setCookiesEnabled,
+                            onSetSaveHistory = viewModel::setSaveHistory,
+                            onSetDoNotTrack = viewModel::setDoNotTrack,
+                            onSetSessionRestore = viewModel::setSessionRestore,
+                            onSetShowClock = viewModel::setShowClock,
+                            onSetBackground = viewModel::setStartBackground,
+                            onSetAddressBarStyle = viewModel::setAddressBarStyle,
+                            onSetWifiOnly = viewModel::setDownloadWifiOnly,
+                            onSetNotifications = viewModel::setShowDownloadNotifications,
+                            onClearHistory = { viewModel.clearHistory(HistoryRange.ALL) },
+                            onClearCache = viewModel::clearCache,
+                            onClearCookies = viewModel::clearCookies,
+                            onClearWebsiteData = viewModel::clearWebsiteData,
+                            onClearPermissions = viewModel::clearAllSitePermissions,
+                            onRevokePermission = viewModel::revokeSitePermission,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
             }

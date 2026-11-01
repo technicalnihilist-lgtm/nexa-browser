@@ -25,6 +25,7 @@ import com.nexabrowser.app.browser.BrowserActivityHost
 import com.nexabrowser.app.browser.JsDialogType
 import com.nexabrowser.app.ui.BrowserViewModel
 import com.nexabrowser.app.ui.NexaApp
+import com.nexabrowser.app.ui.NexaScreen
 
 /**
  * The single Activity. It implements [BrowserActivityHost] so the engine can
@@ -90,7 +91,14 @@ class MainActivity : ComponentActivity(), BrowserActivityHost {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        incomingUrl(intent)?.let { url -> viewModel.openInNewTab(url) }
+        setIntent(intent)
+        incomingUrl(intent)?.let { url ->
+            viewModel.openInNewTab(url)
+            // The link the user tapped must actually be shown. Without this the
+            // new tab loaded behind whatever screen was open (Settings,
+            // Bookmarks, Downloads) and the app looked like it had ignored it.
+            viewModel.setScreen(NexaScreen.BROWSER)
+        }
     }
 
     override fun onStart() {
@@ -108,8 +116,15 @@ class MainActivity : ComponentActivity(), BrowserActivityHost {
     }
 
     override fun onDestroy() {
-        viewModel.activityHost.delegate = null
-        viewModel.hostContext = null
+        // Release the host only if this instance is still the installed one. A
+        // recreated Activity installs itself in onCreate, which runs *before* the
+        // outgoing instance is destroyed — clearing unconditionally here wiped
+        // the new delegate, leaving the engine with no host at all for the rest
+        // of the process: no file picker, downloads, external links, JavaScript
+        // dialogs, fullscreen or geolocation, and new tabs built on the
+        // Application context.
+        viewModel.activityHost.clearIf(this)
+        if (viewModel.hostContext === this) viewModel.hostContext = null
         super.onDestroy()
     }
 

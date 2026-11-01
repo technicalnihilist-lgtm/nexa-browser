@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.nexabrowser.app.util.UrlUtils
+import com.nexabrowser.app.util.FaviconPathCache
 import java.io.File
 
 /** Deterministic accent colour derived from a URL, used for letter avatars. */
@@ -94,7 +95,9 @@ fun BitmapFavicon(bitmap: Bitmap?, url: String, size: Dp = 24.dp, modifier: Modi
 /** Favicon from a cached file path (history, bookmarks, shortcuts). */
 @Composable
 fun CachedFavicon(path: String?, url: String, size: Dp = 28.dp, modifier: Modifier = Modifier) {
-    val file = path?.let { File(it) }?.takeIf { it.exists() }
+    // Answered from memory after the first lookup: a stat() per row per
+    // recomposition was happening on the main thread while the list scrolled.
+    val file = path?.takeIf { FaviconPathCache.exists(it) }?.let { File(it) }
     if (file != null) {
         AsyncImage(
             model = file,
