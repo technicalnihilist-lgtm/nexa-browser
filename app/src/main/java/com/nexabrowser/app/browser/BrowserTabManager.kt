@@ -250,22 +250,43 @@ class BrowserTabManager(
 
     /** Re-applies WebView settings after a preference change. */
     fun applySettings(settings: BrowserSettings) {
+        val css = PageInjections.cssFor(settings)
         _tabs.value.forEach { tab ->
             BrowserWebViewFactory.applySettings(tab.webView, settings)
             if (settings.doNotTrackEnabled && tab.info.url.isNotBlank()) {
                 BrowserWebViewFactory.injectDoNotTrack(tab.webView, true)
             }
             // Re-apply page extensions so toggling one takes effect immediately.
-            if (tab.info.url.isNotBlank()) {
-                runCatching {
-                    tab.webView.evaluateJavascript(
-                        PageInjections.applyScript(PageInjections.cssFor(settings)),
-                        null
-                    )
-                }
-            }
+            // Skipped when the styles are the ones already on the page.
+            if (tab.info.url.isNotBlank()) applyPageCss(tab, css)
         }
     }
+
+    /**
+     * Pushes the page CSS into one tab, but only when it would change anything.
+     *
+     * Every injection is a JavaScript round trip across the renderer boundary
+     * plus a DOM mutation, and it used to run on every page load and on every
+     * settings emission — including when no page extension is enabled at all,
+     * where the script only installed an empty style element. The last CSS
+     * written per tab is remembered, so the default configuration now costs no
+     * injection at all, and toggling an extension still takes effect at once.
+     */
+    private fun applyPageCss(tab: BrowserTab, css: String) {
+        val previous = appliedCss[tab.id]
+        if (css.isBlank()) {
+            if (previous == null) return
+            appliedCss.remove(tab.id)
+            runCatching { tab.webView.evaluateJavascript(PageInjections.clearScript(), null) }
+            return
+        }
+        if (previous == css) return
+        appliedCss[tab.id] = css
+        runCatching { tab.webView.evaluateJavascript(PageInjections.applyScript(css), null) }
+    }
+
+    /** tabId -> the page CSS currently installed in that tab's document. */
+    private val appliedCss = HashMap<String, String>()
 
     /** Toggles the desktop user agent on one tab and reloads it. */
     fun setDesktopSite(tabId: String, enabled: Boolean) {
@@ -296,8 +317,12 @@ class BrowserTabManager(
     override fun onPageStarted(tabId: String, url: String) {
         val blank = url == "about:blank"
         // A new document always reports its first progress tick, whatever the
-        // previous page left behind.
-        if (!blank) lastProgress[tabId] = START_PROGRESS
+        // previous page left behind. A new document also starts with no injected
+        // styles, so the memo of what is on the page is dropped with the old one.
+        if (!blank) {
+            lastProgress[tabId] = START_PROGRESS
+            appliedCss.remove(tabId)
+        }
         updateTab(tabId) {
             it.copy(
                 url = if (blank) it.url else url,
@@ -320,7 +345,13 @@ class BrowserTabManager(
                 error = null
             )
         }
-        if (!blank) tabById(tabId)?.let { _pageFinished.tryEmit(it.info) }
+        if (blank) return
+        val tab = tabById(tabId) ?: return
+        // Page extensions are delivered once the document exists. Doing it here
+        // rather than in the WebViewClient keeps the per-tab memo of what has
+        // already been injected in one place.
+        applyPageCss(tab, PageInjections.cssFor(settingsProvider()))
+        _pageFinished.tryEmit(tab.info)
     }
 
     // WebView reports progress dozens of times per page. Publishing every tick
@@ -382,6 +413,7 @@ class BrowserTabManager(
     private fun detach(tab: BrowserTab) {
         lastProgress.remove(tab.id)
         rendererVisible.remove(tab.id)
+        appliedCss.remove(tab.id)
         tab.destroy()
     }
 
@@ -441,6 +473,7 @@ class BrowserTabManager(
         _activeTabId.value = null
         lastProgress.clear()
         rendererVisible.clear()
+        appliedCss.clear()
         scope.cancel()
     }
 
