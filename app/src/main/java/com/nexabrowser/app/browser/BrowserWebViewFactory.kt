@@ -196,13 +196,11 @@ private class NexaWebViewClient(
     }
 
     override fun onPageFinished(view: WebView, url: String) {
+        // Page extensions (dark pages, custom CSS) are injected by the tab
+        // manager, which knows what styles are already on this tab. Doing it
+        // here meant a second, uncoordinated injection on every page load.
         sink.onPageFinished(tabId, url)
         sink.onNavigationState(tabId, view.canGoBack(), view.canGoForward())
-        // Page extensions (dark pages, custom CSS) are delivered as a style tag.
-        runCatching {
-            val css = PageInjections.cssFor(settingsProvider())
-            view.evaluateJavascript(PageInjections.applyScript(css), null)
-        }
     }
 
     override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
@@ -330,17 +328,35 @@ private class NexaChromeClient(
     override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
         val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
         val probe = WebView(view.context)
+        // The probe only listens for the first URL of the new window. If the page
+        // opens a window and never navigates it (window.open('') used as a form
+        // target does exactly that) nothing used to destroy it: a live renderer,
+        // holding the Activity context, leaked for the rest of the process.
+        var settled = false
+        fun settle(target: String?) {
+            if (settled) return
+            settled = true
+            runCatching { probe.destroy() }
+            if (target != null) host.onNewWindowRequested(tabId, target)
+        }
         probe.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
-                val target = request.url.toString()
-                v.destroy()
-                host.onNewWindowRequested(tabId, target)
+                settle(request.url.toString())
                 return true
             }
         }
         transport.webView = probe
         resultMsg.sendToTarget()
+        // A Handler, not View.post: a probe that is never attached to a window
+        // would keep its runnable in the attach queue and never time out.
+        android.os.Handler(android.os.Looper.getMainLooper())
+            .postDelayed({ settle(null) }, PROBE_TIMEOUT_MS)
         return true
+    }
+
+    private companion object {
+        /** How long a popup probe waits for its first navigation. */
+        const val PROBE_TIMEOUT_MS = 15_000L
     }
 
     override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
