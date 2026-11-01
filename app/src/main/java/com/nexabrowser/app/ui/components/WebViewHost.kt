@@ -33,14 +33,17 @@ fun WebViewHost(
         },
         modifier = modifier,
         update = { frame ->
-            // Purely visual: lets the chrome collapse and return as the page scrolls.
-            webView?.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                latestOnScrolled(scrollY, scrollY - oldScrollY)
-            }
             val current = if (frame.childCount > 0) frame.getChildAt(0) else null
             if (current !== webView) {
                 frame.removeAllViews()
                 if (webView != null) {
+                    // Purely visual: lets the chrome collapse and return as the
+                    // page scrolls. Installed when the WebView is attached rather
+                    // than on every recomposition, which the progress bar and the
+                    // collapsing toolbar trigger dozens of times per page load.
+                    webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                        latestOnScrolled(scrollY, scrollY - oldScrollY)
+                    }
                     // Detach from any previous host before re-parenting.
                     (webView.parent as? ViewGroup)?.removeView(webView)
                     frame.addView(
