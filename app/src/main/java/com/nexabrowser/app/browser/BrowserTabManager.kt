@@ -166,6 +166,7 @@ class BrowserTabManager(
             if (onlyPrivate) _privateMode.value = false
             _activeTabId.value = _tabs.value.last().id
         }
+        syncTabVisibility()
         publishInfos()
         syncPrivateCount()
     }
@@ -176,6 +177,9 @@ class BrowserTabManager(
         val copy = createTabInternal(url, tab.isPrivate)
         _tabs.value = _tabs.value + copy
         _activeTabId.value = copy.id
+        // The source tab must now be paused and waived, exactly as it would be
+        // if the user had switched tabs by hand.
+        syncTabVisibility()
         publishInfos()
         syncPrivateCount()
     }
@@ -186,6 +190,7 @@ class BrowserTabManager(
         val candidate = _tabs.value.lastOrNull { it.isPrivate == enabled }
         if (candidate != null) {
             _activeTabId.value = candidate.id
+            syncTabVisibility()
         } else {
             newTab(url = "", isPrivate = enabled)
         }
@@ -230,15 +235,20 @@ class BrowserTabManager(
 
     // ----------------------------------------------------------------- session
 
-    suspend fun saveSession() {
-        val regular = _tabs.value.filter { !it.isPrivate }
+    /**
+     * The tabs worth restoring, captured synchronously. Reading the tab list is
+     * a snapshot of in-memory state, so it is safe to call on the main thread
+     * right before shutdown; the database write can then happen anywhere.
+     */
+    fun sessionSnapshot(): List<Triple<String, String, Int>> =
+        _tabs.value.filter { !it.isPrivate }
             .mapIndexedNotNull { index, tab ->
                 val url = tab.info.url
                 if (url.isBlank() || url == "about:blank") null
                 else Triple(url, tab.info.title, index)
             }
-        repository.saveSessionTabs(regular)
-    }
+
+    suspend fun saveSession() = repository.saveSessionTabs(sessionSnapshot())
 
     // ------------------------------------------------------------ event sink
 
@@ -317,6 +327,7 @@ class BrowserTabManager(
 
     private fun detach(tab: BrowserTab) {
         stateJobs.remove(tab.id)?.cancel()
+        lastProgress.remove(tab.id)
         tab.destroy()
     }
 

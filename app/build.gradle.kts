@@ -17,8 +17,8 @@ android {
         applicationId = "com.nexabrowser.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.3.1"
+        versionCode = 12
+        versionName = "1.3.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -50,7 +50,9 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        freeCompilerArgs += listOf("-Xjvm-default=all")
+        // Two backend threads: the code generation phase is the slowest part of
+        // a cold build on a low-core CI box, and it parallelises cleanly.
+        freeCompilerArgs += listOf("-Xjvm-default=all", "-Xbackend-threads=2")
     }
 
     buildFeatures {

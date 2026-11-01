@@ -49,7 +49,9 @@ object AdBlocker {
 
     fun isBlocked(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
-        val h = host.lowercase(Locale.ROOT)
+        // Runs for every subresource on the network thread. A URL host is almost
+        // always already lower case, so only allocate when it is not.
+        val h = if (host.hasAsciiUpper()) host.lowercase(Locale.ROOT) else host
         synchronized(decisions) { decisions[h]?.let { return it } }
 
         val blocked = computeBlocked(h)
@@ -74,8 +76,15 @@ object AdBlocker {
         android.webkit.WebResourceResponse(
             "text/plain",
             "utf-8",
-            ByteArrayInputStream(ByteArray(0))
+            ByteArrayInputStream(EMPTY_BODY)
         )
+
+    private val EMPTY_BODY = ByteArray(0)
+
+    private fun String.hasAsciiUpper(): Boolean {
+        for (i in indices) if (this[i] in 'A'..'Z') return true
+        return false
+    }
 }
 
 /** Page-level tweaks that are delivered as injected CSS. */

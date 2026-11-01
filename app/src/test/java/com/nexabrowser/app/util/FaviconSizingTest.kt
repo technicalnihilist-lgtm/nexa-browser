@@ -1,0 +1,55 @@
+package com.nexabrowser.app.util
+
+import com.google.common.truth.Truth.assertThat
+import org.junit.Test
+
+/**
+ * The favicon cache stores every icon at a bounded size. These tests pin the
+ * sizing rule that keeps stored icons small without distorting their aspect.
+ */
+class FaviconSizingTest {
+
+    @Test
+    fun `icon at or under the cap keeps its exact size`() {
+        assertThat(FaviconSizing.targetSize(32, 32)).isEqualTo(32 to 32)
+        assertThat(FaviconSizing.targetSize(96, 96)).isEqualTo(96 to 96)
+        assertThat(FaviconSizing.targetSize(16, 48)).isEqualTo(16 to 48)
+    }
+
+    @Test
+    fun `square icon larger than the cap is scaled down`() {
+        assertThat(FaviconSizing.targetSize(512, 512)).isEqualTo(96 to 96)
+    }
+
+    @Test
+    fun `wide icon keeps its aspect ratio`() {
+        val (w, h) = FaviconSizing.targetSize(192, 96)
+        assertThat(w).isEqualTo(96)
+        assertThat(h).isEqualTo(48)
+    }
+
+    @Test
+    fun `tall icon keeps its aspect ratio`() {
+        val (w, h) = FaviconSizing.targetSize(64, 256)
+        assertThat(w).isEqualTo(24)
+        assertThat(h).isEqualTo(96)
+    }
+
+    @Test
+    fun `scaled icon never collapses below one pixel`() {
+        val (w, h) = FaviconSizing.targetSize(1024, 1)
+        assertThat(w).isEqualTo(96)
+        assertThat(h).isAtLeast(1)
+    }
+
+    @Test
+    fun `degenerate sizes are clamped`() {
+        assertThat(FaviconSizing.targetSize(0, 0)).isEqualTo(1 to 1)
+        assertThat(FaviconSizing.targetSize(-4, 32)).isEqualTo(1 to 1)
+    }
+
+    @Test
+    fun `custom cap is honoured`() {
+        assertThat(FaviconSizing.targetSize(200, 100, max = 50)).isEqualTo(50 to 25)
+    }
+}

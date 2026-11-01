@@ -44,8 +44,12 @@ import com.nexabrowser.app.domain.model.ThemeMode
 import com.nexabrowser.app.domain.model.TopSite
 import com.nexabrowser.app.util.FaviconStore
 import com.nexabrowser.app.util.UrlUtils
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -96,6 +100,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val dataStore = DataStoreManager(application)
     private val faviconStore = FaviconStore(application)
     private val privateManager = PrivateBrowsingManager(application)
+
+    /** Outlives viewModelScope so the last session write is never cancelled. */
+    private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** The engine talks to this; MainActivity installs itself as the delegate. */
     val activityHost = DelegatingActivityHost()
@@ -174,11 +181,18 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
 
         // Keep the bookmark toggle in sync with the active tab.
+        //
+        // Tab events fire dozens of times per page load (progress ticks, title,
+        // favicon, navigation state) and for *every* tab, so querying the
+        // database on each emission meant a Room round trip per event. The
+        // active tab's URL is the only input that can change the answer, so the
+        // query now runs only when that URL actually changes.
         viewModelScope.launch {
-            tabManager.tabInfos.collect { infos ->
-                val active = infos.firstOrNull { it.id == tabManager.activeTabId.value }
-                _isBookmarked.value = active?.url?.let { repository.isBookmarked(it) } ?: false
+            combine(tabManager.tabInfos, tabManager.activeTabId) { infos, activeId ->
+                infos.firstOrNull { it.id == activeId }?.url.orEmpty()
             }
+                .distinctUntilChanged()
+                .collect { url -> refreshBookmarkState(url) }
         }
 
         restoreSession()
@@ -204,8 +218,19 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Persists the open tabs. The tab snapshot is taken synchronously — the tab
+     * manager may be shut down straight afterwards — and the write runs on its
+     * own scope so it survives [onCleared], where viewModelScope is cancelled
+     * before a Room write could finish.
+     */
     fun saveSession() {
-        viewModelScope.launch { runCatching { tabManager.saveSession() } }
+        val snapshot = runCatching { tabManager.sessionSnapshot() }.getOrDefault(emptyList())
+        sessionScope.launch { runCatching { repository.saveSessionTabs(snapshot) } }
+    }
+
+    private suspend fun refreshBookmarkState(url: String) {
+        _isBookmarked.value = if (url.isBlank()) false else repository.isBookmarked(url)
     }
 
     // ------------------------------------------------------------- UI state
@@ -279,7 +304,11 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun deleteBookmark(bookmark: Bookmark) {
-        viewModelScope.launch { repository.deleteBookmark(bookmark) }
+        viewModelScope.launch {
+            repository.deleteBookmark(bookmark)
+            // The star must follow a bookmark removed from another screen.
+            refreshBookmarkState(tabManager.activeInfo()?.url.orEmpty())
+        }
     }
 
     fun updateBookmark(bookmark: Bookmark, title: String, url: String) {

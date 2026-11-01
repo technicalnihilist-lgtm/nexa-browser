@@ -58,7 +58,11 @@ class BrowserTab(
     internal fun destroy() {
         runCatching {
             webView.stopLoading()
-            webView.loadUrl("about:blank")
+            // A WebView destroyed while still attached to a view hierarchy is a
+            // classic native crash on several OEM builds, so detach first. The
+            // extra about:blank load is skipped: the instance is going away and
+            // a load started here can deliver callbacks after destroy().
+            (webView.parent as? android.view.ViewGroup)?.removeView(webView)
             webView.removeAllViews()
             webView.destroy()
         }
