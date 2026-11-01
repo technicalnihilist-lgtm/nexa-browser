@@ -232,12 +232,13 @@ modest heap, `org.gradle.workers.max`, and in-process Kotlin compilation.
 
 ## Tests
 
-**Unit tests (run, passing — 24 tests):**
+**Unit tests (run, passing — 31 tests):**
 
 ```
 ./gradlew :app:testDebugUnitTest
 com.nexabrowser.app.util.UrlUtilsTest      18 tests, 0 failures
 com.nexabrowser.app.domain.SearchEngineTest 6 tests, 0 failures
+com.nexabrowser.app.util.FaviconSizingTest    7 tests, 0 failures
 ```
 
 They cover the address-bar resolver (URL vs search, host:port, IP, localhost,
