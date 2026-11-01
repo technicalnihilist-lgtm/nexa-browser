@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /** A tab that was closed and can be restored. */
 data class ClosedTab(val url: String, val title: String, val isPrivate: Boolean)
@@ -86,6 +87,7 @@ class BrowserTabManager(
         _tabs.value = _tabs.value + tab
         if (isPrivate && !_privateMode.value) _privateMode.value = true
         if (switchTo) _activeTabId.value = tab.id
+        syncTabVisibility()
         publishInfos()
         syncPrivateCount()
         return tab
@@ -112,11 +114,21 @@ class BrowserTabManager(
         return tab
     }
 
+    /** Keeps renderer priority and pause state in step with the active tab. */
+    private fun syncTabVisibility() {
+        val active = _activeTabId.value
+        _tabs.value.forEach { tab ->
+            BrowserWebViewFactory.setTabVisible(tab.webView, tab.id == active)
+        }
+    }
+
     fun selectTab(id: String) {
+        val previous = _activeTabId.value
         val tab = tabById(id) ?: return
         if (tab.isPrivate && !_privateMode.value) _privateMode.value = true
         if (!tab.isPrivate && _privateMode.value) _privateMode.value = false
         _activeTabId.value = id
+        syncTabVisibility()
         publishInfos()
     }
 
@@ -134,6 +146,7 @@ class BrowserTabManager(
             _privateMode.value = false
             newTab(url = "", isPrivate = false)
         }
+        syncTabVisibility()
         publishInfos()
         syncPrivateCount()
     }
@@ -255,11 +268,22 @@ class BrowserTabManager(
         if (!blank) tabById(tabId)?.let { _pageFinished.tryEmit(it.info) }
     }
 
+    // WebView reports progress dozens of times per page. Publishing every tick
+    // re-renders the progress bar and the tab list for no visible gain, so only
+    // meaningful jumps are published.
+    private val lastProgress = HashMap<String, Int>()
+
     override fun onProgress(tabId: String, progress: Int) {
+        val previous = lastProgress[tabId] ?: -1
+        val meaningful = progress == 0 || progress >= 100 || abs(progress - previous) >= 5
+        if (!meaningful) return
+        lastProgress[tabId] = progress
         updateTab(tabId) { it.copy(progress = progress, isLoading = progress < 100) }
     }
 
     override fun onTitle(tabId: String, title: String) {
+        // Sites fire onReceivedTitle several times with the same string.
+        if (tabById(tabId)?.info?.title == title) return
         updateTab(tabId) { it.copy(title = title) }
     }
 
@@ -269,6 +293,7 @@ class BrowserTabManager(
 
     override fun onUrlChanged(tabId: String, url: String) {
         if (url == "about:blank") return
+        if (tabById(tabId)?.info?.url == url) return
         updateTab(tabId) { it.copy(url = url) }
         val tab = tabById(tabId) ?: return
         if (tab.isPrivate) privateManager.recordPrivateVisit(url)

@@ -39,9 +39,25 @@ object AdBlocker {
         }
     }
 
+    // Every subresource goes through here on the networking thread. A page can
+    // issue hundreds of requests to the same few hosts, so the answer is cached;
+    // a small LRU keeps it bounded.
+    private val decisions = object : LinkedHashMap<String, Boolean>(256, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean =
+            size > 512
+    }
+
     fun isBlocked(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
         val h = host.lowercase(Locale.ROOT)
+        synchronized(decisions) { decisions[h]?.let { return it } }
+
+        val blocked = computeBlocked(h)
+        synchronized(decisions) { decisions[h] = blocked }
+        return blocked
+    }
+
+    private fun computeBlocked(h: String): Boolean {
         if (h in hosts) return true
         var idx = h.indexOf('.')
         while (idx in 1 until h.length - 1) {

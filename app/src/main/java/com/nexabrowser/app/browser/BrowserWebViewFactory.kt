@@ -81,6 +81,24 @@ object BrowserWebViewFactory {
         return webView
     }
 
+    /**
+     * Background tabs are a real cost: their renderer keeps running timers,
+     * animations and scripts. Dropping an inactive tab to RENDERER_PRIORITY_WAIVED
+     * and pausing it lets Android reclaim that work, which keeps switching tabs
+     * and scrolling smooth when many are open. The active tab is restored to
+     * RENDERER_PRIORITY_IMPORTANT so it never feels slower for it.
+     */
+    fun setTabVisible(webView: WebView, visible: Boolean) {
+        runCatching {
+            webView.setRendererPriorityPolicy(
+                if (visible) WebView.RENDERER_PRIORITY_IMPORTANT
+                else WebView.RENDERER_PRIORITY_WAIVED,
+                true
+            )
+            if (visible) webView.onResume() else webView.onPause()
+        }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     fun applySettings(webView: WebView, settings: BrowserSettings) {
         val s = webView.settings
