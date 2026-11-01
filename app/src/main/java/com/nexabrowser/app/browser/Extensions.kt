@@ -139,6 +139,15 @@ object PageInjections {
             "el.textContent='$escaped';})();"
     }
 
+    /**
+     * JavaScript that removes the injected style element again. Needed when the
+     * last page extension is switched off: without it the previously injected
+     * CSS would stay on the page until the next navigation.
+     */
+    fun clearScript(): String =
+        "(function(){var el=document.getElementById('$STYLE_ID');" +
+            "if(el&&el.parentNode){el.parentNode.removeChild(el);}})();"
+
     /** True for hosts that must never be upgraded to HTTPS. */
     fun isLocalHost(host: String?): Boolean {
         val h = host?.lowercase(Locale.ROOT) ?: return true
