@@ -18,48 +18,64 @@ import java.util.Locale
 object AdBlocker {
 
     private const val TAG = "NexaAdBlock"
-    private val hosts = HashSet<String>(512)
+
+    /**
+     * The blocklist is published as an immutable set once it has been parsed, so
+     * readers never see a half-filled list and never need a lock. Requests are
+     * matched against this from several WebView network threads at once.
+     */
+    @Volatile
+    private var hosts: Set<String> = emptySet()
+
+    @Volatile
     private var loaded = false
 
     fun ensureLoaded(context: Context) {
         if (loaded) return
         synchronized(this) {
             if (loaded) return
+            val parsed = HashSet<String>(256)
             runCatching {
                 context.assets.open("blocklist.txt").bufferedReader().useLines { lines ->
                     lines.forEach { raw ->
                         val line = raw.trim()
                         if (line.isEmpty() || line.startsWith("#")) return@forEach
-                        hosts.add(line.lowercase(Locale.ROOT))
+                        parsed.add(line.lowercase(Locale.ROOT))
                     }
                 }
             }.onFailure { Log.w(TAG, "Could not read the blocklist", it) }
+            hosts = parsed
             loaded = true
-            Log.i(TAG, "Blocklist loaded: ${hosts.size} hosts")
+            Log.i(TAG, "Blocklist loaded: ${parsed.size} hosts")
         }
     }
 
-    // Every subresource goes through here on the networking thread. A page can
-    // issue hundreds of requests to the same few hosts, so the answer is cached;
-    // a small LRU keeps it bounded.
-    private val decisions = object : LinkedHashMap<String, Boolean>(256, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean =
-            size > 512
-    }
+    /**
+     * Host → blocked decisions, consulted for every subresource on the network
+     * threads. This used to be a synchronised LinkedHashMap, so every request in
+     * flight serialised on one monitor; a ConcurrentHashMap answers reads without
+     * locking at all. The table is simply dropped when it grows past its bound —
+     * rebuilding a few hundred entries is far cheaper than maintaining LRU order
+     * under contention.
+     */
+    private val decisions = java.util.concurrent.ConcurrentHashMap<String, Boolean>(512)
 
     fun isBlocked(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
         // Runs for every subresource on the network thread. A URL host is almost
         // always already lower case, so only allocate when it is not.
         val h = if (host.hasAsciiUpper()) host.lowercase(Locale.ROOT) else host
-        synchronized(decisions) { decisions[h]?.let { return it } }
+        decisions[h]?.let { return it }
 
         val blocked = computeBlocked(h)
-        synchronized(decisions) { decisions[h] = blocked }
+        if (decisions.size >= MAX_CACHED_DECISIONS) decisions.clear()
+        decisions[h] = blocked
         return blocked
     }
 
     private fun computeBlocked(h: String): Boolean {
+        val hosts = this.hosts
+        if (hosts.isEmpty()) return false
         if (h in hosts) return true
         var idx = h.indexOf('.')
         while (idx in 1 until h.length - 1) {
@@ -80,6 +96,8 @@ object AdBlocker {
         )
 
     private val EMPTY_BODY = ByteArray(0)
+
+    private const val MAX_CACHED_DECISIONS = 1024
 
     private fun String.hasAsciiUpper(): Boolean {
         for (i in indices) if (this[i] in 'A'..'Z') return true

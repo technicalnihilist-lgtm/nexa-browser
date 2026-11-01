@@ -93,7 +93,16 @@ class MainActivity : ComponentActivity(), BrowserActivityHost {
         incomingUrl(intent)?.let { url -> viewModel.openInNewTab(url) }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Resume the visible tab only; the rest stay paused.
+        viewModel.onHostStarted()
+    }
+
     override fun onStop() {
+        // Pause every WebView before the window goes away: otherwise renderers
+        // keep running timers, animations and media in the background.
+        viewModel.onHostStopped()
         viewModel.saveSession()
         super.onStop()
     }

@@ -1,5 +1,6 @@
 package com.nexabrowser.app.data.repository
 
+import androidx.room.withTransaction
 import com.nexabrowser.app.data.local.NexaDatabase
 import com.nexabrowser.app.data.local.entity.BookmarkEntity
 import com.nexabrowser.app.data.local.entity.BookmarkFolderEntity
@@ -147,15 +148,29 @@ class BrowserRepository(private val db: NexaDatabase) {
 
     suspend fun deleteShortcut(id: Long) = shortcutDao.deleteById(id)
 
+    /**
+     * One transaction instead of N: a reorder used to be N separate writes, so a
+     * drag could be interrupted half-applied and leave duplicate positions. It is
+     * also a single fsync rather than one per row.
+     */
     suspend fun reorderShortcuts(ordered: List<Shortcut>) {
-        ordered.forEachIndexed { index, s -> shortcutDao.updatePosition(s.id, index) }
+        if (ordered.isEmpty()) return
+        db.withTransaction {
+            ordered.forEachIndexed { index, s -> shortcutDao.updatePosition(s.id, index) }
+        }
     }
 
     // ------------------------------------------------------------ session tabs
 
+    /**
+     * Clear-then-insert in one transaction. Without it a crash between the two
+     * statements wiped the saved session and left nothing behind.
+     */
     suspend fun saveSessionTabs(tabs: List<Triple<String, String, Int>>) {
-        recentTabDao.clearAll()
-        recentTabDao.insertAll(tabs.map { RecentTabEntity(url = it.first, title = it.second, position = it.third) })
+        db.withTransaction {
+            recentTabDao.clearAll()
+            recentTabDao.insertAll(tabs.map { RecentTabEntity(url = it.first, title = it.second, position = it.third) })
+        }
     }
 
     suspend fun loadSessionTabs(): List<Triple<String, String, Int>> =

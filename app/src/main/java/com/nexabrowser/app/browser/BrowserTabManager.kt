@@ -8,7 +8,6 @@ import com.nexabrowser.app.data.repository.BrowserRepository
 import com.nexabrowser.app.domain.model.NewTabBehavior
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -58,7 +57,6 @@ class BrowserTabManager(
     private val _closedTabs = MutableStateFlow<List<ClosedTab>>(emptyList())
     val closedTabs: StateFlow<List<ClosedTab>> = _closedTabs.asStateFlow()
 
-    private val stateJobs = mutableMapOf<String, Job>()
     private var idCounter = 0
 
     /** Emits once per completed page load so callers can record history etc. */
@@ -104,7 +102,6 @@ class BrowserTabManager(
             settingsProvider = settingsProvider
         )
         val tab = BrowserTab(id, isPrivate, webView)
-        observe(tab)
         if (url.isNullOrBlank()) {
             webView.loadUrl("about:blank")
         } else {
@@ -112,6 +109,21 @@ class BrowserTabManager(
                 .onFailure { Log.w(TAG, "Rejected start URL: $url"); webView.loadUrl("about:blank") }
         }
         return tab
+    }
+
+    /**
+     * The host Activity went to the background. Every WebView is paused, so no
+     * renderer keeps running timers, CSS animations, video or script work while
+     * the app is not on screen. Without this a page keeps burning CPU — and
+     * holding a full renderer resident — until the Activity is destroyed.
+     */
+    fun onHostStopped() {
+        _tabs.value.forEach { tab -> runCatching { tab.webView.onPause() } }
+    }
+
+    /** The host Activity is visible again: only the active tab resumes. */
+    fun onHostStarted() {
+        if (_tabs.value.isNotEmpty()) syncTabVisibility()
     }
 
     /** Keeps renderer priority and pause state in step with the active tab. */
@@ -254,6 +266,9 @@ class BrowserTabManager(
 
     override fun onPageStarted(tabId: String, url: String) {
         val blank = url == "about:blank"
+        // A new document always reports its first progress tick, whatever the
+        // previous page left behind.
+        if (!blank) lastProgress[tabId] = START_PROGRESS
         updateTab(tabId) {
             it.copy(
                 url = if (blank) it.url else url,
@@ -267,6 +282,7 @@ class BrowserTabManager(
 
     override fun onPageFinished(tabId: String, url: String) {
         val blank = url == "about:blank"
+        if (!blank) lastProgress[tabId] = 100
         updateTab(tabId) {
             it.copy(
                 isLoading = false,
@@ -319,24 +335,45 @@ class BrowserTabManager(
 
     // ----------------------------------------------------------------- private
 
-    private fun observe(tab: BrowserTab) {
-        stateJobs[tab.id] = scope.launch {
-            tab.state.collect { publishInfos() }
-        }
-    }
-
     private fun detach(tab: BrowserTab) {
-        stateJobs.remove(tab.id)?.cancel()
         lastProgress.remove(tab.id)
         tab.destroy()
     }
 
+    /** Rebuilds the whole published list. Used for structural changes only. */
     private fun publishInfos() {
         _tabInfos.value = _tabs.value.map { it.info }
     }
 
+    /**
+     * Republished list with exactly one entry swapped.
+     *
+     * Every WebView event — progress, title, url, favicon, navigation state —
+     * used to run through a per-tab collector coroutine that rebuilt the entire
+     * tab list. A page load fires dozens of these, so with several tabs open the
+     * cost was O(tabs) allocations per event, dispatched through the main
+     * dispatcher, for a change that touches a single entry. The state write now
+     * publishes just that entry, and only when it actually changed.
+     */
+    private fun publishInfo(tab: BrowserTab) {
+        val info = tab.info
+        val current = _tabInfos.value
+        val index = current.indexOfFirst { it.id == tab.id }
+        if (index < 0) {
+            publishInfos()
+            return
+        }
+        if (current[index] == info) return
+        val updated = ArrayList<TabInfo>(current.size)
+        for (i in current.indices) updated.add(if (i == index) info else current[i])
+        _tabInfos.value = updated
+    }
+
     private fun updateTab(id: String, transform: (TabInfo) -> TabInfo) {
-        _tabs.value.firstOrNull { it.id == id }?.update(transform)
+        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        val before = tab.info
+        tab.update(transform)
+        if (tab.info != before) publishInfo(tab)
     }
 
     private fun rememberClosed(tab: BrowserTab) {
@@ -353,8 +390,6 @@ class BrowserTabManager(
 
     /** Destroys every WebView and stops all observation. */
     fun shutdown() {
-        stateJobs.values.forEach { it.cancel() }
-        stateJobs.clear()
         _tabs.value.forEach { runCatching { it.destroy() } }
         _tabs.value = emptyList()
         _tabInfos.value = emptyList()
@@ -365,5 +400,6 @@ class BrowserTabManager(
     companion object {
         private const val TAG = "NexaTabs"
         private const val MAX_CLOSED_TABS = 20
+        private const val START_PROGRESS = 5
     }
 }

@@ -57,8 +57,15 @@ class FaviconStore(private val context: Context) {
             size > MAX_CACHED_HOSTS
     }
 
-    /** host -> "w x h" of the icon already written, so repeats are free. */
-    private val storedSizes = HashMap<String, Int>()
+    /**
+     * host -> packed size of the icon already written, so repeats are free.
+     * Bounded like [paths]: it is keyed by host, and a long browsing session can
+     * touch far more hosts than the cache should ever remember.
+     */
+    private val storedSizes = object : LinkedHashMap<String, Int>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?): Boolean =
+            size > MAX_CACHED_HOSTS
+    }
 
     fun pathForHost(host: String): String? {
         if (host.isBlank()) return null

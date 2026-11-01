@@ -542,8 +542,20 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun clearCache() {
         viewModelScope.launch(Dispatchers.Main) {
             runCatching {
-                val wv = tabManager.activeTab()?.webView ?: WebView(getApplication())
-                wv.clearCache(true)
+                val existing = tabManager.activeTab()?.webView
+                if (existing != null) {
+                    existing.clearCache(true)
+                } else {
+                    // clearCache() is an instance method. When no tab is open a
+                    // throwaway WebView is needed — and it must be destroyed, or
+                    // it leaves a live renderer behind for the life of the process.
+                    val temp = WebView(getApplication())
+                    try {
+                        temp.clearCache(true)
+                    } finally {
+                        runCatching { temp.destroy() }
+                    }
+                }
             }
             message("Cache cleared")
         }
@@ -717,6 +729,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // ------------------------------------------------------------ lifecycle
+
+    /** The Activity is visible: the active tab's renderer runs at full priority. */
+    fun onHostStarted() = tabManager.onHostStarted()
+
+    /** The Activity left the screen: no renderer keeps running in the background. */
+    fun onHostStopped() = tabManager.onHostStopped()
 
     override fun onCleared() {
         saveSession()
