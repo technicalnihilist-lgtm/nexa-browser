@@ -6,6 +6,7 @@ import android.util.Log
 import com.nexabrowser.app.data.prefs.BrowserSettings
 import com.nexabrowser.app.data.repository.BrowserRepository
 import com.nexabrowser.app.domain.model.NewTabBehavior
+import com.nexabrowser.app.util.FaviconSizing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,6 +60,15 @@ class BrowserTabManager(
 
     private var idCounter = 0
 
+    /**
+     * tabId -> whether that tab's renderer is currently resumed at full
+     * priority. A freshly created WebView is active, so a new tab starts as
+     * visible and is paused by the first sync if it is not the active one.
+     *
+     * Only read and written on the main thread.
+     */
+    private val rendererVisible = HashMap<String, Boolean>()
+
     /** Emits once per completed page load so callers can record history etc. */
     private val _pageFinished = MutableSharedFlow<TabInfo>(extraBufferCapacity = 16)
     val pageFinished: SharedFlow<TabInfo> = _pageFinished.asSharedFlow()
@@ -102,6 +112,7 @@ class BrowserTabManager(
             settingsProvider = settingsProvider
         )
         val tab = BrowserTab(id, isPrivate, webView)
+        rendererVisible[id] = true
         if (url.isNullOrBlank()) {
             webView.loadUrl("about:blank")
         } else {
@@ -118,7 +129,14 @@ class BrowserTabManager(
      * holding a full renderer resident — until the Activity is destroyed.
      */
     fun onHostStopped() {
-        _tabs.value.forEach { tab -> runCatching { tab.webView.onPause() } }
+        _tabs.value.forEach { tab ->
+            // Nothing is visible while the Activity is away, so every tab is
+            // marked paused and the state stays in step with the WebView.
+            if (rendererVisible[tab.id] != false) {
+                runCatching { tab.webView.onPause() }
+                rendererVisible[tab.id] = false
+            }
+        }
     }
 
     /** The host Activity is visible again: only the active tab resumes. */
@@ -126,11 +144,22 @@ class BrowserTabManager(
         if (_tabs.value.isNotEmpty()) syncTabVisibility()
     }
 
-    /** Keeps renderer priority and pause state in step with the active tab. */
+    /**
+     * Keeps renderer priority and pause state in step with the active tab.
+     *
+     * Only tabs whose state actually differs are touched. Every
+     * setRendererPriorityPolicy call crosses into the renderer process and every
+     * onPause/onResume pair restarts or parks page timers, so switching tabs with
+     * ten of them open used to make twenty of those calls for two tabs that
+     * changed. Now a switch costs exactly two.
+     */
     private fun syncTabVisibility() {
         val active = _activeTabId.value
         _tabs.value.forEach { tab ->
-            BrowserWebViewFactory.setTabVisible(tab.webView, tab.id == active)
+            val visible = tab.id == active
+            if (rendererVisible[tab.id] == visible) return@forEach
+            BrowserWebViewFactory.setTabVisible(tab.webView, visible)
+            rendererVisible[tab.id] = visible
         }
     }
 
@@ -314,7 +343,22 @@ class BrowserTabManager(
     }
 
     override fun onFavicon(tabId: String, favicon: Bitmap?) {
-        if (favicon != null) updateTab(tabId) { it.copy(favicon = favicon) }
+        if (favicon == null) return
+        updateTab(tabId) { it.copy(favicon = downsampleFavicon(favicon)) }
+    }
+
+    /**
+     * A page can hand back a 512px apple-touch-icon, which costs ~1 MB of heap
+     * for as long as the tab is open — multiplied by every open tab. The icon is
+     * drawn at 24–28dp, so it is capped at [FaviconSizing.MAX_ICON_EDGE] on the
+     * way in. Icons that are already small (the common case) are returned
+     * untouched, so this costs nothing for a normal 16–48px favicon. The source
+     * bitmap is not recycled: WebView may still be using it.
+     */
+    private fun downsampleFavicon(bitmap: Bitmap): Bitmap {
+        val (w, h) = FaviconSizing.targetSize(bitmap.width, bitmap.height)
+        if (w == bitmap.width && h == bitmap.height) return bitmap
+        return runCatching { Bitmap.createScaledBitmap(bitmap, w, h, true) }.getOrDefault(bitmap)
     }
 
     override fun onUrlChanged(tabId: String, url: String) {
@@ -337,6 +381,7 @@ class BrowserTabManager(
 
     private fun detach(tab: BrowserTab) {
         lastProgress.remove(tab.id)
+        rendererVisible.remove(tab.id)
         tab.destroy()
     }
 
@@ -394,6 +439,8 @@ class BrowserTabManager(
         _tabs.value = emptyList()
         _tabInfos.value = emptyList()
         _activeTabId.value = null
+        lastProgress.clear()
+        rendererVisible.clear()
         scope.cancel()
     }
 

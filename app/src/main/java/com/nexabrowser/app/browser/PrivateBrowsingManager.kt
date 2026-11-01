@@ -30,14 +30,20 @@ import kotlinx.coroutines.withContext
 class PrivateBrowsingManager(private val context: Context) {
 
     private var lastCount = 0
-    private val sessionVisitedUrls = mutableListOf<String>()
+
+    /**
+     * Private visits of this session, in memory only. Bounded so that a long
+     * private session cannot grow the heap without limit.
+     */
+    private val sessionVisitedUrls = ArrayDeque<String>()
 
     val activePrivateTabCount: Int get() = lastCount
 
     /** Records a private visit in memory only; it is never persisted. */
     fun recordPrivateVisit(url: String) {
         if (url.isBlank() || url == "about:blank") return
-        sessionVisitedUrls.add(url)
+        sessionVisitedUrls.addLast(url)
+        while (sessionVisitedUrls.size > MAX_SESSION_URLS) sessionVisitedUrls.removeFirst()
     }
 
     fun sessionHistory(): List<String> = sessionVisitedUrls.toList()
@@ -58,8 +64,18 @@ class PrivateBrowsingManager(private val context: Context) {
         sessionVisitedUrls.clear()
         runCatching { WebStorage.getInstance().deleteAllData() }
             .onFailure { Log.w(TAG, "Could not clear DOM storage", it) }
-        runCatching { WebView(context).clearCache(true) }
-            .onFailure { Log.w(TAG, "Could not clear the WebView cache", it) }
+        // clearCache() is an instance method, so a throwaway WebView is needed.
+        // It must be destroyed: a WebView that is merely dropped keeps a live
+        // renderer process (and its memory) for the rest of the app's life, and
+        // this ran every time the last private tab closed.
+        runCatching {
+            val temp = WebView(context)
+            try {
+                temp.clearCache(true)
+            } finally {
+                runCatching { temp.destroy() }
+            }
+        }.onFailure { Log.w(TAG, "Could not clear the WebView cache", it) }
         if (clearCookies) {
             runCatching {
                 val cm = CookieManager.getInstance()
@@ -72,5 +88,6 @@ class PrivateBrowsingManager(private val context: Context) {
 
     companion object {
         private const val TAG = "NexaPrivate"
+        private const val MAX_SESSION_URLS = 200
     }
 }
