@@ -99,6 +99,23 @@ object BrowserWebViewFactory {
         }
     }
 
+    /**
+     * Stops every renderer's timers for the whole process. Called when the host
+     * Activity goes to the background: [WebView.onPause] only covers one
+     * WebView and does not reliably stop CSS animations or script timers.
+     *
+     * The API is declared on the instance even though it acts process-wide, so
+     * one live WebView is all that is needed.
+     */
+    fun pauseTimers(webView: WebView) {
+        runCatching { webView.pauseTimers() }
+    }
+
+    /** Re-enables renderer timers when the host Activity comes back. */
+    fun resumeTimers(webView: WebView) {
+        runCatching { webView.resumeTimers() }
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     fun applySettings(webView: WebView, settings: BrowserSettings) {
         val s = webView.settings

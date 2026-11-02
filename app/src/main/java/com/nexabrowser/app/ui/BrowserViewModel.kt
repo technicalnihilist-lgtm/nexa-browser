@@ -56,6 +56,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Top-level destinations that are drawn over the browser. */
 enum class NexaScreen { BROWSER, BOOKMARKS, HISTORY, DOWNLOADS, READING_LIST, SETTINGS, TABS, EXTENSIONS }
@@ -183,14 +184,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
 
         // Record history for non-private tabs, with a cached favicon.
+        //
+        // The whole body runs on the IO dispatcher: resolving the icon path
+        // stats the favicon file, and the visit write hits Room. Both used to
+        // start on the main thread from this collector, i.e. exactly when a
+        // page had just finished loading and the UI was busiest painting it.
         viewModelScope.launch {
             tabManager.pageFinished.collect { info ->
                 if (info.isPrivate) return@collect
                 if (!settings.value.saveHistoryEnabled) return@collect
-                val host = UrlUtils.hostOf(info.url)
-                val iconPath = info.favicon?.let { faviconStore.save(host, it) }
-                    ?: faviconStore.pathForHost(host)
-                repository.recordVisit(info.title, info.url, iconPath)
+                withContext(Dispatchers.IO) {
+                    val host = UrlUtils.hostOf(info.url)
+                    val iconPath = info.favicon?.let { faviconStore.save(host, it) }
+                        ?: faviconStore.pathForHost(host)
+                    repository.recordVisit(info.title, info.url, iconPath)
+                }
             }
         }
 

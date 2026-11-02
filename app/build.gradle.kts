@@ -17,8 +17,8 @@ android {
         applicationId = "com.nexabrowser.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "1.3.6"
+        versionCode = 17
+        versionName = "1.3.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

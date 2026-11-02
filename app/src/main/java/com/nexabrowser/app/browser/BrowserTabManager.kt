@@ -137,10 +137,20 @@ class BrowserTabManager(
                 rendererVisible[tab.id] = false
             }
         }
+        // onPause() is per WebView and does not stop everything a renderer can
+        // keep running — CSS animations, requestAnimationFrame and script
+        // timers survive it on several WebView versions. pauseTimers() is the
+        // process-wide switch the platform provides for exactly this moment, so
+        // a backgrounded app costs no renderer CPU at all. Every WebView is
+        // resumed individually in syncTabVisibility() when the app returns.
+        _tabs.value.firstOrNull()?.let { BrowserWebViewFactory.pauseTimers(it.webView) }
     }
 
     /** The host Activity is visible again: only the active tab resumes. */
     fun onHostStarted() {
+        // Timer pause/resume acts on the whole process, so one live WebView is
+        // enough to turn timers back on for every tab.
+        _tabs.value.firstOrNull()?.let { BrowserWebViewFactory.resumeTimers(it.webView) }
         if (_tabs.value.isNotEmpty()) syncTabVisibility()
     }
 
@@ -180,8 +190,17 @@ class BrowserTabManager(
         _tabs.value = _tabs.value.filterNot { it.id == id }
         rememberClosed(tab)
         if (wasActive) {
-            val sameMode = _tabs.value.filter { it.isPrivate == tab.isPrivate }
-            _activeTabId.value = (sameMode.lastOrNull() ?: _tabs.value.lastOrNull())?.id
+            // The tab that takes over and the browsing mode must agree. Picking
+            // only a new active id left the app in private mode with a regular
+            // tab on screen when the last private tab was closed (and the
+            // reverse when the last regular tab was closed): the tab strip read
+            // as empty, and the next new tab was created in the wrong mode.
+            val next = TabSelection.activeAfterClose(
+                remaining = _tabs.value.map { TabRef(it.id, it.isPrivate) },
+                closedIsPrivate = tab.isPrivate
+            )
+            _activeTabId.value = next?.id
+            if (next != null) _privateMode.value = next.isPrivate
         }
         if (_tabs.value.isEmpty()) {
             _privateMode.value = false

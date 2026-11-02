@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
@@ -47,26 +48,58 @@ fun GlassSurface(
     val isDark = LocalNexaColors.current.isDark
 
     // Body: a three-stop vertical gradient so the pane has weight.
-    val body = Brush.verticalGradient(
-        colors = listOf(
-            tint.copy(alpha = (tint.alpha * 1.10f).coerceAtMost(1f)),
-            tint,
-            tint.copy(alpha = tint.alpha * 0.90f)
+    //
+    // The brushes are remembered: a Brush is an immutable value, so the shader
+    // it describes is identical for identical colours, but each call allocated
+    // the brush, its colour list and its float array. The chrome (address bar,
+    // navigation pill, dock) recomposes on every tab state change and on every
+    // frame of the collapsing-toolbar animation, so that was several
+    // allocations per frame for a picture that had not changed at all.
+    val body = remember(tint) {
+        Brush.verticalGradient(
+            colors = listOf(
+                tint.copy(alpha = (tint.alpha * 1.10f).coerceAtMost(1f)),
+                tint,
+                tint.copy(alpha = tint.alpha * 0.90f)
+            )
         )
-    )
+    }
 
     // Specular sheen at 135°, corner to corner, as in the reference.
     val sheenAlpha = if (isDark) 0.22f else 0.45f
-    val specular = Brush.linearGradient(
-        colorStops = arrayOf(
-            0.00f to Color.White.copy(alpha = sheenAlpha),
-            0.40f to Color.Transparent,
-            0.60f to Color.Transparent,
-            1.00f to Color.White.copy(alpha = sheenAlpha * 0.55f)
-        ),
-        start = Offset.Zero,
-        end = Offset.Infinite
-    )
+    val specular = remember(isDark) {
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.00f to Color.White.copy(alpha = sheenAlpha),
+                0.40f to Color.Transparent,
+                0.60f to Color.Transparent,
+                1.00f to Color.White.copy(alpha = sheenAlpha * 0.55f)
+            ),
+            start = Offset.Zero,
+            end = Offset.Infinite
+        )
+    }
+
+    // The two inset hairlines. Remembered for the same reason as the brushes
+    // above: their colours only ever change with the theme.
+    val topHighlight = remember(isDark) {
+        Brush.horizontalGradient(
+            listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = if (isDark) 0.42f else 0.75f),
+                Color.Transparent
+            )
+        )
+    }
+    val bottomLine = remember(isDark) {
+        Brush.horizontalGradient(
+            listOf(
+                Color.Transparent,
+                Color.White.copy(alpha = if (isDark) 0.14f else 0.20f),
+                Color.Transparent
+            )
+        )
+    }
 
     Box(
         modifier = modifier
@@ -82,15 +115,7 @@ fun GlassSurface(
                 .align(Alignment.TopCenter)
                 .fillMaxWidth(0.94f)
                 .height(1.5.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = if (isDark) 0.42f else 0.75f),
-                            Color.Transparent
-                        )
-                    )
-                )
+                .background(topHighlight)
         )
         // Inset bottom line — the thickness of the glass.
         Box(
@@ -98,15 +123,7 @@ fun GlassSurface(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(0.96f)
                 .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = if (isDark) 0.14f else 0.20f),
-                            Color.Transparent
-                        )
-                    )
-                )
+                .background(bottomLine)
         )
         content()
     }
