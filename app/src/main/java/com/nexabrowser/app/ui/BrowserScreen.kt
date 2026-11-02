@@ -69,6 +69,7 @@ import com.nexabrowser.app.domain.model.TopSite
 import com.nexabrowser.app.ui.components.AddressBar
 import com.nexabrowser.app.ui.components.DockAction
 import com.nexabrowser.app.ui.components.LiquidGlassDock
+import com.nexabrowser.app.ui.components.ScrollAccumulator
 import com.nexabrowser.app.ui.components.WebViewHost
 import com.nexabrowser.app.ui.screens.StartPage
 import com.nexabrowser.app.ui.theme.GlassSurface
@@ -106,11 +107,17 @@ fun BrowserScreen(
     // The toolbar slides away while reading and returns on an upward scroll,
     // as the reference does.
     var toolbarHidden by remember { mutableStateOf(false) }
-    var scrollAccum by remember { mutableStateOf(0) }
+    // Deliberately not snapshot state: see ScrollAccumulator. The accumulator
+    // holds the per-gesture distance, which changes on every scroll frame but
+    // never affects what is drawn, so keeping it in a `mutableStateOf` made the
+    // whole browser surface recompose once per frame while scrolling.
+    val scroller = remember(hideThreshold, showThreshold) {
+        ScrollAccumulator(hideThreshold, showThreshold)
+    }
 
     LaunchedEffect(activeTab?.url) {
+        scroller.reset()
         toolbarHidden = false
-        scrollAccum = 0
     }
 
     val footerShift by animateDpAsState(
@@ -142,21 +149,10 @@ fun BrowserScreen(
                     Modifier
                         .fillMaxSize()
                         .padding(top = statusBarHeight),
+                    // One state write only when the toolbar actually has to
+                    // move; every other scroll event costs an addition.
                     onScrolled = { y, dy ->
-                        if (y <= 0) {
-                            toolbarHidden = false
-                            scrollAccum = 0
-                        } else {
-                            if ((dy > 0 && scrollAccum < 0) || (dy < 0 && scrollAccum > 0)) scrollAccum = 0
-                            scrollAccum += dy
-                            if (scrollAccum > hideThreshold) {
-                                toolbarHidden = true
-                                scrollAccum = 0
-                            } else if (scrollAccum < -showThreshold) {
-                                toolbarHidden = false
-                                scrollAccum = 0
-                            }
-                        }
+                        if (scroller.onScroll(y, dy)) toolbarHidden = scroller.hidden
                     }
                 )
             }
@@ -225,7 +221,10 @@ fun BrowserScreen(
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
-                        ) { toolbarHidden = false }
+                        ) {
+                            scroller.reset()
+                            toolbarHidden = false
+                        }
                         .padding(horizontal = 26.dp, vertical = 8.dp)
                 )
             }

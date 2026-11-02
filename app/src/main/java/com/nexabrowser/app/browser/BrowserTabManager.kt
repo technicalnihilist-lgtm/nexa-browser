@@ -132,8 +132,18 @@ class BrowserTabManager(
         _tabs.value.forEach { tab ->
             // Nothing is visible while the Activity is away, so every tab is
             // marked paused and the state stays in step with the WebView.
+            //
+            // This goes through setTabVisible() rather than calling onPause()
+            // directly: onPause() stops the page, but it left the renderer at
+            // RENDERER_PRIORITY_IMPORTANT, which is the one renderer the
+            // platform has been told never to waive. The tab the user was on
+            // when they left the app therefore kept a full-priority renderer
+            // resident — and unreclaimable — for as long as the app stayed in
+            // the background. Waiving it as well lets the system take that
+            // memory back; syncTabVisibility() restores the active tab to
+            // IMPORTANT the moment the app returns.
             if (rendererVisible[tab.id] != false) {
-                runCatching { tab.webView.onPause() }
+                BrowserWebViewFactory.setTabVisible(tab.webView, false)
                 rendererVisible[tab.id] = false
             }
         }

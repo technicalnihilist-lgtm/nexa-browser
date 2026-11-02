@@ -14,6 +14,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -174,13 +176,34 @@ class DownloadRepository(
         }
     }
 
-    /** Runs a lightweight poll while any download is active. */
+    /**
+     * Polls DownloadManager only while something is actually downloading.
+     *
+     * The old loop ran for the whole life of the process: with nothing in the
+     * list at all it still opened a Room query every fifteen seconds, waking
+     * the database and the CPU for a table it already knew was empty. It also
+     * meant a download started just after an idle tick showed no progress — the
+     * row sat at PENDING, or at 0%, for up to fifteen seconds before the first
+     * refresh.
+     *
+     * The `downloads` table is now the trigger: Room re-emits the list whenever
+     * a row is written (a new download, a cancel, a completion, a progress
+     * write), so the poll starts the moment work appears and stops on its own
+     * when the last transfer finishes. `distinctUntilChanged` on the boolean
+     * keeps the once-a-second progress writes from restarting it.
+     */
     fun startTracking(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                val active = runCatching { refreshActive() }.getOrDefault(0)
-                delay(if (active == 0) IDLE_INTERVAL_MS else ACTIVE_INTERVAL_MS)
-            }
+            dao.observeAll()
+                .map { rows -> DownloadActive.anyActive(rows) }
+                .distinctUntilChanged()
+                .collectLatest { anyActive ->
+                    if (!anyActive) return@collectLatest
+                    while (isActive) {
+                        runCatching { refreshActive() }
+                        delay(ACTIVE_INTERVAL_MS)
+                    }
+                }
         }
     }
 
@@ -284,8 +307,18 @@ class DownloadRepository(
 
     companion object {
         private const val ACTIVE_INTERVAL_MS = 1_000L
-        private const val IDLE_INTERVAL_MS = 15_000L
     }
+}
+
+/**
+ * Whether a set of stored rows contains anything worth polling for. Pure, so
+ * the "is the tracker idle?" decision is unit tested rather than inferred.
+ */
+internal object DownloadActive {
+    /** Derived from [DownloadStatus.isActive] so the two can never disagree. */
+    private val ACTIVE = DownloadStatus.entries.filter { it.isActive }.map { it.name }.toSet()
+
+    fun anyActive(rows: List<DownloadEntity>): Boolean = rows.any { it.status in ACTIVE }
 }
 
 /**
