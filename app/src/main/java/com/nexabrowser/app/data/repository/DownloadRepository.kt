@@ -91,28 +91,66 @@ class DownloadRepository(
         id
     }
 
-    /** Pulls the latest state for every non-finished row out of DownloadManager. */
-    suspend fun refreshActive() = withContext(Dispatchers.IO) {
+    /**
+     * Pulls the latest state for every non-finished row out of DownloadManager.
+     *
+     * One cursor for all rows instead of one query per row: with four downloads
+     * running this used to be four binder round trips to the DownloadManager
+     * service every second, on every poll, forever. It is one now.
+     *
+     * Returns how many rows were still active, so the caller does not have to
+     * ask the database the same question a second time.
+     */
+    suspend fun refreshActive(): Int = withContext(Dispatchers.IO) {
         val active = dao.active()
-        for (row in active) {
-            val cursor = manager.query(DownloadManager.Query().setFilterById(row.id))
-            cursor.use { c ->
-                if (c == null || !c.moveToFirst()) {
-                    dao.updateStatus(row.id, DownloadStatus.FAILED.name, "Download record no longer available", System.currentTimeMillis())
-                } else {
+        if (active.isEmpty()) return@withContext 0
+
+        val byId = HashMap<Long, DownloadEntity>(active.size)
+        active.forEach { byId[it.id] = it }
+        val query = DownloadManager.Query().setFilterById(*active.map { it.id }.toLongArray())
+        val seen = HashSet<Long>(active.size)
+
+        runCatching {
+            manager.query(query)?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
+                    val row = byId[id] ?: continue
+                    seen.add(id)
                     applyCursor(row, c)
                 }
             }
         }
+
+        // A row the system no longer reports is a dead record.
+        active.forEach { row ->
+            if (row.id !in seen) {
+                dao.updateStatus(
+                    row.id,
+                    DownloadStatus.FAILED.name,
+                    "Download record no longer available",
+                    System.currentTimeMillis()
+                )
+            }
+        }
+        active.size
     }
 
+    /**
+     * Mirrors one cursor row into Room — but only when something actually
+     * changed.
+     *
+     * The poll runs once a second for as long as any row is PENDING, RUNNING or
+     * PAUSED, and a paused or stalled transfer reports byte-identical values
+     * every time. Writing them anyway invalidated the `downloads` Flow, which
+     * re-read the table, re-mapped every row and recomposed the downloads screen
+     * once a second for a progress bar that was not moving. Unchanged rows now
+     * cost one comparison and no database work at all.
+     */
     private suspend fun applyCursor(row: DownloadEntity, c: Cursor) {
         val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
         val downloaded = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
         val total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
         val reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
-        val localUriIdx = c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
-        val localUri = if (localUriIdx >= 0) c.getString(localUriIdx) else null
 
         val mapped = when (status) {
             DownloadManager.STATUS_PENDING -> DownloadStatus.PENDING
@@ -123,10 +161,16 @@ class DownloadRepository(
         }
         val reasonText = if (mapped == DownloadStatus.FAILED) reasonText(reason) else null
 
-        dao.updateProgress(row.id, downloaded, total, mapped.name, reasonText, System.currentTimeMillis())
+        if (DownloadProgressRow.needsWrite(row, downloaded, total, mapped.name, reasonText)) {
+            dao.updateProgress(row.id, downloaded, total, mapped.name, reasonText, System.currentTimeMillis())
+        }
         if (mapped == DownloadStatus.COMPLETED) {
+            val localUriIdx = c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+            val localUri = if (localUriIdx >= 0) c.getString(localUriIdx) else null
             val uri = localUri ?: manager.getUriForDownloadedFile(row.id)?.toString()
-            dao.updateLocalUri(row.id, uri)
+            // A completed row is polled again on the next tick; only the first
+            // one has a new URI to record.
+            if (uri != null && uri != row.localUri) dao.updateLocalUri(row.id, uri)
         }
     }
 
@@ -134,8 +178,8 @@ class DownloadRepository(
     fun startTracking(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
             while (isActive) {
-                refreshActive()
-                delay(if (dao.active().isEmpty()) IDLE_INTERVAL_MS else ACTIVE_INTERVAL_MS)
+                val active = runCatching { refreshActive() }.getOrDefault(0)
+                delay(if (active == 0) IDLE_INTERVAL_MS else ACTIVE_INTERVAL_MS)
             }
         }
     }
@@ -242,4 +286,21 @@ class DownloadRepository(
         private const val ACTIVE_INTERVAL_MS = 1_000L
         private const val IDLE_INTERVAL_MS = 15_000L
     }
+}
+
+/**
+ * Pure decision about whether a polled download differs from the stored row.
+ * Kept free of Android and DownloadManager types so it can be unit tested.
+ */
+internal object DownloadProgressRow {
+    fun needsWrite(
+        row: DownloadEntity,
+        downloadedBytes: Long,
+        totalBytes: Long,
+        status: String,
+        reason: String?
+    ): Boolean = row.downloadedBytes != downloadedBytes ||
+        row.totalBytes != totalBytes ||
+        row.status != status ||
+        row.reason != reason
 }

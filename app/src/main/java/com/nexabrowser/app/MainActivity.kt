@@ -70,6 +70,18 @@ class MainActivity : ComponentActivity(), BrowserActivityHost {
         viewModel.resolvePermission(allow = true, remember = pendingPermissionRemember, osGranted = granted)
     }
 
+    /**
+     * The notification permission is asked for when a download starts. It has
+     * nothing to do with a web permission prompt, so it needs its own launcher:
+     * sharing [osPermissionLauncher] meant the result callback ran
+     * resolvePermission(), which resolved — and remembered a decision for — a
+     * camera/microphone prompt the user had not answered, and could deny it when
+     * notifications were refused.
+     */
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* The download runs either way; nothing to resolve here. */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -237,7 +249,7 @@ class MainActivity : ComponentActivity(), BrowserActivityHost {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            runCatching { osPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS)) }
+            runCatching { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
         }
     }
 }

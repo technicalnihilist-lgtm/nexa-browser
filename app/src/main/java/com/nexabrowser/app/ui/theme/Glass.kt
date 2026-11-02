@@ -261,7 +261,12 @@ fun dockCapsuleColors(style: AddressBarStyle): Pair<Color, Color> = when {
 @Composable
 fun EdgeFade(top: Boolean, modifier: Modifier = Modifier) {
     val base = MaterialTheme.colorScheme.background
-    val solid = base.copy(alpha = 0.72f)
-    val colors = if (top) listOf(solid, Color.Transparent) else listOf(Color.Transparent, solid)
-    Box(modifier.background(Brush.verticalGradient(colors)))
+    // Remembered: this sits in the chrome, which recomposes on every progress
+    // tick and on every frame of the toolbar animation, and each call used to
+    // allocate the colour, the list and the brush for an unchanged gradient.
+    val brush = remember(top, base) {
+        val solid = base.copy(alpha = 0.72f)
+        Brush.verticalGradient(if (top) listOf(solid, Color.Transparent) else listOf(Color.Transparent, solid))
+    }
+    Box(modifier.background(brush))
 }
