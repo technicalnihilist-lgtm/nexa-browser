@@ -95,7 +95,11 @@ fun StartPage(
     val bg = StartBackgrounds.brush(backgroundId, extras.isDark)
 
     var now by remember { mutableStateOf(Date()) }
+    // Ticks only while the clock is actually on screen. The loop used to run for
+    // the whole life of the start page with the clock switched off, waking the
+    // main thread every 30 seconds to write state that nothing reads.
     LaunchedEffect(showClock) {
+        if (!showClock) return@LaunchedEffect
         while (true) {
             now = Date()
             kotlinx.coroutines.delay(30_000)

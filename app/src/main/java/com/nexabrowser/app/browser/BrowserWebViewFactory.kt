@@ -116,8 +116,23 @@ object BrowserWebViewFactory {
         runCatching { webView.resumeTimers() }
     }
 
+    /** The user agent a WebView should carry for [desktop] rendering. */
+    fun userAgentFor(desktop: Boolean): String? = if (desktop) DESKTOP_UA else null
+
+    /**
+     * Applies [settings] to one WebView.
+     *
+     * [userAgent] is passed in rather than derived from the settings here: a tab
+     * may have its own desktop-site choice that outlives a settings change, and
+     * deriving it from [BrowserSettings.desktopSiteByDefault] alone used to reset
+     * that choice silently.
+     */
     @SuppressLint("SetJavaScriptEnabled")
-    fun applySettings(webView: WebView, settings: BrowserSettings) {
+    fun applySettings(
+        webView: WebView,
+        settings: BrowserSettings,
+        userAgent: String? = userAgentFor(settings.desktopSiteByDefault)
+    ) {
         val s = webView.settings
         s.javaScriptEnabled = settings.javaScriptEnabled
         s.domStorageEnabled = true
@@ -140,7 +155,7 @@ object BrowserWebViewFactory {
         s.allowUniversalAccessFromFileURLs = false
         s.setGeolocationEnabled(false)           // gated behind an explicit prompt
         s.safeBrowsingEnabled = true
-        s.userAgentString = if (settings.desktopSiteByDefault) DESKTOP_UA else null
+        s.userAgentString = userAgent
 
         runCatching {
             CookieManager.getInstance().setAcceptThirdPartyCookies(webView, settings.cookiesEnabled)

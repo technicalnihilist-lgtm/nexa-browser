@@ -281,15 +281,42 @@ class BrowserTabManager(
     fun applySettings(settings: BrowserSettings) {
         val css = PageInjections.cssFor(settings)
         _tabs.value.forEach { tab ->
-            BrowserWebViewFactory.applySettings(tab.webView, settings)
-            if (settings.doNotTrackEnabled && tab.info.url.isNotBlank()) {
-                BrowserWebViewFactory.injectDoNotTrack(tab.webView, true)
+            val previous = appliedSettings[tab.id]
+            appliedSettings[tab.id] = settings
+            // Only the fields WebView actually reads are worth a write. The
+            // settings flow re-emits for every preference write, including the
+            // ones that are purely visual (theme, accent, corners, wallpaper,
+            // clock), and pushing those into every tab cost ~20 WebSettings
+            // writes and a JavaScript evaluation per tab for no effect at all.
+            // Page extensions are still handled below, so toggling one takes
+            // effect immediately as before.
+            if (WebViewSettingsDiff.affectsWebView(previous, settings)) {
+                BrowserWebViewFactory.applySettings(tab.webView, settings, userAgentFor(tab, settings))
+                if (settings.doNotTrackEnabled && tab.info.url.isNotBlank()) {
+                    BrowserWebViewFactory.injectDoNotTrack(tab.webView, true)
+                }
             }
             // Re-apply page extensions so toggling one takes effect immediately.
             // Skipped when the styles are the ones already on the page.
             if (tab.info.url.isNotBlank()) applyPageCss(tab, css)
         }
     }
+
+    /** tabId -> the settings snapshot last pushed into that tab's WebView. */
+    private val appliedSettings = HashMap<String, BrowserSettings>()
+
+    /** tabId -> an explicit per-tab desktop-site choice, when the user made one. */
+    private val desktopOverrides = HashMap<String, Boolean>()
+
+    /**
+     * The user agent a tab must carry: its own desktop choice when it has one,
+     * otherwise the global default. Reading only the default reset a tab's
+     * choice on the next settings change without reloading the page, so the
+     * document stayed desktop while every later request went out with the mobile
+     * user agent.
+     */
+    private fun userAgentFor(tab: BrowserTab, settings: BrowserSettings): String? =
+        BrowserWebViewFactory.userAgentFor(desktopOverrides[tab.id] ?: settings.desktopSiteByDefault)
 
     /**
      * Pushes the page CSS into one tab, but only when it would change anything.
@@ -320,7 +347,9 @@ class BrowserTabManager(
     /** Toggles the desktop user agent on one tab and reloads it. */
     fun setDesktopSite(tabId: String, enabled: Boolean) {
         val tab = tabById(tabId) ?: return
-        tab.webView.settings.userAgentString = if (enabled) BrowserWebViewFactory.DESKTOP_UA else null
+        // Recorded per tab so a later settings change cannot silently undo it.
+        desktopOverrides[tabId] = enabled
+        tab.webView.settings.userAgentString = userAgentFor(tab, settingsProvider())
         tab.webView.reload()
     }
 
@@ -443,6 +472,8 @@ class BrowserTabManager(
         lastProgress.remove(tab.id)
         rendererVisible.remove(tab.id)
         appliedCss.remove(tab.id)
+        appliedSettings.remove(tab.id)
+        desktopOverrides.remove(tab.id)
         tab.destroy()
     }
 
@@ -503,6 +534,8 @@ class BrowserTabManager(
         lastProgress.clear()
         rendererVisible.clear()
         appliedCss.clear()
+        appliedSettings.clear()
+        desktopOverrides.clear()
         scope.cancel()
     }
 
