@@ -1,14 +1,13 @@
 package com.nexabrowser.app
 
 import android.app.Application
-import android.os.Build
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import com.nexabrowser.app.browser.AdBlocker
 
 /**
- * Application entry point. Keeps global WebView setup in one place and performs
- * a cheap warm-up so the first page load is faster.
+ * Application entry point. Keeps the process-wide WebView setup and the
+ * blocklist load in one place, and does nothing else: anything expensive here
+ * runs on the main thread before the first frame.
  */
 class NexaApplication : Application() {
 
@@ -21,20 +20,16 @@ class NexaApplication : Application() {
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
-
-        // Warm up the WebView provider so the first real tab does not pay for it.
-        // Only the provider initialisation is wanted here: constructing the view
-        // starts Chromium, which is the expensive part. The old version also
-        // called loadUrl("about:blank") and destroyed the view immediately, which
-        // starts a navigation on an instance that is about to be torn down — the
-        // documented cause of "destroy() called while still loading" crashes on
-        // several OEM builds — for no benefit at all.
-        runCatching {
-            WebView(this).apply {
-                webViewClient = WebViewClient()
-                settings.javaScriptEnabled = false
-                destroy()
-            }
-        }
     }
+
+    // There is deliberately no WebView "warm-up" here any more.
+    //
+    // It constructed a throwaway WebView in onCreate — provider init, ~20
+    // WebSettings writes, then destroy() — to warm the provider before the first
+    // tab. But the first real tab is created a few milliseconds later, on the
+    // same main thread, by BrowserViewModel.restoreSession(): the warm-up bought
+    // nothing and cost a second full WebView construction plus a Chromium
+    // init/teardown cycle on every cold start, before the first frame could be
+    // drawn. The provider is initialised exactly once now, by the WebView that
+    // is actually shown.
 }

@@ -14,6 +14,7 @@ import android.webkit.GeolocationPermissions
 import android.webkit.JsPromptResult
 import android.webkit.JsResult
 import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -35,6 +36,13 @@ interface TabEventSink {
     fun onUrlChanged(tabId: String, url: String)
     fun onNavigationState(tabId: String, canGoBack: Boolean, canGoForward: Boolean)
     fun onError(tabId: String, error: PageError)
+
+    /**
+     * The renderer process behind this tab was destroyed by the system (memory
+     * pressure) or by the page itself. The WebView is unusable from here on and
+     * has to be replaced; the sink rebuilds the tab.
+     */
+    fun onRendererGone(tabId: String, didCrash: Boolean)
 }
 
 /**
@@ -282,6 +290,21 @@ private class NexaWebViewClient(
     override fun onReceivedClientCertRequest(view: WebView, request: android.webkit.ClientCertRequest) {
         request.cancel()
     }
+
+    /**
+     * The renderer for this WebView is gone.
+     *
+     * This callback is the difference between "one tab died" and "the browser
+     * closed itself". If it is not overridden, or it returns false, Android
+     * kills the whole app process — so a heavy page that pushes the system into
+     * reclaiming its renderer took every open tab, the session and the app down
+     * with it. Returning true keeps the process alive; the tab manager then
+     * throws the dead WebView away and rebuilds the tab.
+     */
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+        sink.onRendererGone(tabId, detail.didCrash())
+        return true
+    }
 }
 
 /** Handles chrome: progress, title, favicon, dialogs, permissions, fullscreen, popups. */
@@ -374,6 +397,13 @@ private class NexaChromeClient(
         probe.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
                 settle(request.url.toString())
+                return true
+            }
+
+            // The probe is a throwaway WebView, but an unhandled renderer death
+            // on it kills the app just the same.
+            override fun onRenderProcessGone(v: WebView, detail: RenderProcessGoneDetail): Boolean {
+                settle(null)
                 return true
             }
         }

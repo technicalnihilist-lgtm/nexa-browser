@@ -305,6 +305,13 @@ class BrowserTabManager(
     /** tabId -> the settings snapshot last pushed into that tab's WebView. */
     private val appliedSettings = HashMap<String, BrowserSettings>()
 
+    /**
+     * tabId -> how often that tab has lost its renderer inside the current
+     * window, so [RendererRecovery] can tell one unlucky tab from a page that
+     * kills its own renderer on every attempt.
+     */
+    private val rendererLosses = HashMap<String, RendererRecovery.LossRecord>()
+
     /** tabId -> an explicit per-tab desktop-site choice, when the user made one. */
     private val desktopOverrides = HashMap<String, Boolean>()
 
@@ -404,6 +411,9 @@ class BrowserTabManager(
             )
         }
         if (blank) return
+        // A document that loads to the end proves the renderer is healthy, so
+        // the recovery budget starts over for this tab.
+        rendererLosses.remove(tabId)
         val tab = tabById(tabId) ?: return
         // Page extensions are delivered once the document exists. Doing it here
         // rather than in the WebViewClient keeps the per-tab memo of what has
@@ -466,6 +476,100 @@ class BrowserTabManager(
         updateTab(tabId) { it.copy(error = error, isLoading = false, progress = 100) }
     }
 
+    /**
+     * The renderer behind one tab died.
+     *
+     * Nothing can bring that WebView back: once its renderer process is gone the
+     * view is a dead rectangle, and the only recovery the platform offers is a
+     * new WebView. The tab itself — its id, url, title, private flag and place
+     * in the strip — is kept, so the user sees the page come back rather than a
+     * tab that silently vanished. The reload budget in [RendererRecovery] keeps
+     * a page that kills its own renderer from looping; past it the tab stays put
+     * with the normal "couldn't be loaded" overlay and its Try Again button.
+     */
+    override fun onRendererGone(tabId: String, didCrash: Boolean) {
+        val tab = tabById(tabId) ?: return
+        val info = tab.info
+        val record = RendererRecovery.record(rendererLosses[tabId], System.currentTimeMillis())
+        rendererLosses[tabId] = record
+
+        val canReload = RendererRecovery.shouldReload(record) &&
+            info.url.isNotBlank() && info.url != "about:blank"
+        Log.w(
+            TAG,
+            "Renderer gone for $tabId (crash=$didCrash, loss ${record.count}); " +
+                if (canReload) "rebuilding and reloading" else "rebuilding without a reload"
+        )
+        rebuildTab(
+            tab = tab,
+            urlToLoad = if (canReload) info.url else null,
+            error = if (canReload) null else PageError(
+                PageError.UNKNOWN,
+                "The page stopped responding and had to be restarted.",
+                info.url,
+                false
+            )
+        )
+    }
+
+    /**
+     * Swaps a tab's dead WebView for a fresh one, keeping its metadata.
+     *
+     * The old view is detached and destroyed first — a WebView whose renderer
+     * has gone must never be attached, drawn or reused. Everything the tab
+     * manager memoises for that tab (last progress, injected CSS, applied
+     * settings) belonged to the old view, so it is dropped with it.
+     */
+    private fun rebuildTab(tab: BrowserTab, urlToLoad: String?, error: PageError?) {
+        val index = _tabs.value.indexOfFirst { it.id == tab.id }
+        if (index < 0) return
+        val info = tab.info
+
+        runCatching { (tab.webView.parent as? android.view.ViewGroup)?.removeView(tab.webView) }
+        runCatching { tab.webView.destroy() }
+        lastProgress.remove(tab.id)
+        appliedCss.remove(tab.id)
+        appliedSettings.remove(tab.id)
+
+        val settings = settingsProvider()
+        val webView = BrowserWebViewFactory.create(
+            context = webViewContext(),
+            tabId = tab.id,
+            settings = settings,
+            sink = this,
+            host = host,
+            settingsProvider = settingsProvider
+        )
+        // A tab may carry its own desktop-site choice, which must survive the
+        // rebuild: create() only knows the global default.
+        BrowserWebViewFactory.applySettings(webView, settings, userAgentFor(tab, settings))
+
+        val fresh = BrowserTab(tab.id, tab.isPrivate, webView)
+        fresh.restore(
+            info.copy(
+                isLoading = urlToLoad != null,
+                progress = if (urlToLoad != null) START_PROGRESS else 100,
+                canGoBack = false,
+                canGoForward = false,
+                error = error
+            )
+        )
+        // A freshly created WebView is running; syncTabVisibility() demotes it
+        // again at once if this is a background tab.
+        rendererVisible[tab.id] = true
+
+        val updated = _tabs.value.toMutableList()
+        updated[index] = fresh
+        _tabs.value = updated
+
+        if (urlToLoad.isNullOrBlank()) webView.loadUrl("about:blank")
+        else runCatching { webView.loadUrl(urlToLoad) }
+            .onFailure { webView.loadUrl("about:blank") }
+
+        syncTabVisibility()
+        publishInfos()
+    }
+
     // ----------------------------------------------------------------- private
 
     private fun detach(tab: BrowserTab) {
@@ -474,6 +578,7 @@ class BrowserTabManager(
         appliedCss.remove(tab.id)
         appliedSettings.remove(tab.id)
         desktopOverrides.remove(tab.id)
+        rendererLosses.remove(tab.id)
         tab.destroy()
     }
 
@@ -536,6 +641,7 @@ class BrowserTabManager(
         appliedCss.clear()
         appliedSettings.clear()
         desktopOverrides.clear()
+        rendererLosses.clear()
         scope.cancel()
     }
 

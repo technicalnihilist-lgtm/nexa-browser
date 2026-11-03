@@ -51,6 +51,14 @@ confirmation. Each tab owns its own WebView and therefore its own navigation
 history and scroll position. Recently closed tabs can be reopened. Tabs are
 persisted as URLs and restored on the next launch.
 
+Android kills a WebView's renderer whenever it needs the memory back, and until
+now an app that did not answer that callback was killed along with it — one
+heavy page could take the whole browser down. The renderer death is now handled:
+the dead WebView is thrown away, the tab keeps its id, title, URL and place in
+the strip, and the page is reloaded. A page that kills its own renderer on every
+attempt stops being reloaded after two tries and shows the normal "couldn't be
+loaded" overlay instead, so a recovery can never become a crash loop.
+
 ### Private browsing
 A visually distinct dark mode with its own tab set. Private visits are never
 written to history, bookmarks or the reading list. When the last private tab
@@ -204,6 +212,10 @@ cleared in `onDestroy`.
 
 Requirements: JDK 17, Android SDK Platform 35, Build-Tools 35.0.0.
 
+The Gradle wrapper is committed, so no local Gradle install is needed. If the
+script loses its executable bit when the repository is unpacked, run
+`chmod +x gradlew` first (or `sh gradlew ...`).
+
 ```bash
 # Debug APK
 ./gradlew :app:assembleDebug
@@ -232,14 +244,20 @@ modest heap, `org.gradle.workers.max`, and in-process Kotlin compilation.
 
 ## Tests
 
-**Unit tests (run, passing — 38 tests):**
+**Unit tests (run, passing — 70 tests, 0 failures):**
 
 ```
 ./gradlew :app:testDebugUnitTest
-com.nexabrowser.app.util.UrlUtilsTest         18 tests, 0 failures
-com.nexabrowser.app.domain.SearchEngineTest    6 tests, 0 failures
-com.nexabrowser.app.util.FaviconSizingTest     7 tests, 0 failures
-com.nexabrowser.app.util.FaviconPathCacheTest  7 tests, 0 failures
+com.nexabrowser.app.util.UrlUtilsTest                 18 tests, 0 failures
+com.nexabrowser.app.util.FaviconSizingTest             7 tests, 0 failures
+com.nexabrowser.app.util.FaviconPathCacheTest          7 tests, 0 failures
+com.nexabrowser.app.domain.SearchEngineTest            6 tests, 0 failures
+com.nexabrowser.app.browser.RendererRecoveryTest       6 tests, 0 failures
+com.nexabrowser.app.data.repository.DownloadProgressRowTest  6 tests, 0 failures
+com.nexabrowser.app.ui.ScrollAccumulatorTest           6 tests, 0 failures
+com.nexabrowser.app.browser.TabSelectionTest           5 tests, 0 failures
+com.nexabrowser.app.browser.WebViewSettingsDiffTest    5 tests, 0 failures
+com.nexabrowser.app.data.repository.DownloadActiveTest 4 tests, 0 failures
 ```
 
 They cover the address-bar resolver (URL vs search, host:port, IP, localhost,

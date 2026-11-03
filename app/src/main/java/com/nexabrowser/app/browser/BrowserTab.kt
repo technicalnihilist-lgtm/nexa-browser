@@ -55,6 +55,14 @@ class BrowserTab(
         _state.value = transform(_state.value)
     }
 
+    /**
+     * Replaces the whole published state. Used when the WebView behind this tab
+     * had to be rebuilt and the tab must keep its title, url and mode.
+     */
+    internal fun restore(info: TabInfo) {
+        _state.value = info
+    }
+
     internal fun destroy() {
         runCatching {
             webView.stopLoading()
