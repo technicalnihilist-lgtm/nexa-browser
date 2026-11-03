@@ -69,6 +69,22 @@ class BrowserTabManager(
      */
     private val rendererVisible = HashMap<String, Boolean>()
 
+    /**
+     * tabId -> whether that tab's renderer is currently pinned at
+     * RENDERER_PRIORITY_IMPORTANT. Kept next to [rendererVisible] so the
+     * priority policy is only rewritten when the answer changes: every
+     * setRendererPriorityPolicy call crosses into the renderer process.
+     *
+     * Only read and written on the main thread.
+     */
+    private val rendererImportant = HashMap<String, Boolean>()
+
+    /** Whether the browser surface (the WebView host) is on screen. */
+    private var surfaceVisible = true
+
+    /** Whether the host Activity is started. */
+    private var hostVisible = true
+
     /** Emits once per completed page load so callers can record history etc. */
     private val _pageFinished = MutableSharedFlow<TabInfo>(extraBufferCapacity = 16)
     val pageFinished: SharedFlow<TabInfo> = _pageFinished.asSharedFlow()
@@ -113,6 +129,7 @@ class BrowserTabManager(
         )
         val tab = BrowserTab(id, isPrivate, webView)
         rendererVisible[id] = true
+        rendererImportant[id] = true
         if (url.isNullOrBlank()) {
             webView.loadUrl("about:blank")
         } else {
@@ -129,12 +146,15 @@ class BrowserTabManager(
      * holding a full renderer resident — until the Activity is destroyed.
      */
     fun onHostStopped() {
+        // Every tab is now both paused and waived, which syncTabVisibility()
+        // derives from these two flags.
+        hostVisible = false
         _tabs.value.forEach { tab ->
             // Nothing is visible while the Activity is away, so every tab is
             // marked paused and the state stays in step with the WebView.
             //
-            // This goes through setTabVisible() rather than calling onPause()
-            // directly: onPause() stops the page, but it left the renderer at
+            // Pausing alone is not enough: onPause() stops the page, but it
+            // left the renderer at
             // RENDERER_PRIORITY_IMPORTANT, which is the one renderer the
             // platform has been told never to waive. The tab the user was on
             // when they left the app therefore kept a full-priority renderer
@@ -143,8 +163,12 @@ class BrowserTabManager(
             // memory back; syncTabVisibility() restores the active tab to
             // IMPORTANT the moment the app returns.
             if (rendererVisible[tab.id] != false) {
-                BrowserWebViewFactory.setTabVisible(tab.webView, false)
+                BrowserWebViewFactory.setTabPaused(tab.webView, true)
                 rendererVisible[tab.id] = false
+            }
+            if (rendererImportant[tab.id] != false) {
+                BrowserWebViewFactory.setRendererPriority(tab.webView, false)
+                rendererImportant[tab.id] = false
             }
         }
         // onPause() is per WebView and does not stop everything a renderer can
@@ -158,10 +182,31 @@ class BrowserTabManager(
 
     /** The host Activity is visible again: only the active tab resumes. */
     fun onHostStarted() {
+        hostVisible = true
         // Timer pause/resume acts on the whole process, so one live WebView is
         // enough to turn timers back on for every tab.
         _tabs.value.firstOrNull()?.let { BrowserWebViewFactory.resumeTimers(it.webView) }
         if (_tabs.value.isNotEmpty()) syncTabVisibility()
+    }
+
+    /**
+     * The browser surface went off screen or came back — the user opened
+     * Settings, Bookmarks, History, Downloads or the tab switcher, or returned
+     * from one of them.
+     *
+     * The page is left running (so audio and video keep playing) but it is no
+     * longer pinned at RENDERER_PRIORITY_IMPORTANT. Before this, the active
+     * tab's renderer stayed unreclaimable for as long as the user stayed on any
+     * other screen, which is exactly when the app is showing its own lists and
+     * could use the memory.
+     */
+    fun setSurfaceVisible(visible: Boolean) {
+        if (surfaceVisible == visible) return
+        surfaceVisible = visible
+        val active = _activeTabId.value
+        _tabs.value.forEach { tab ->
+            syncRendererPriority(tab, RendererPolicy.important(tab.id, active, surfaceVisible, hostVisible))
+        }
     }
 
     /**
@@ -176,11 +221,20 @@ class BrowserTabManager(
     private fun syncTabVisibility() {
         val active = _activeTabId.value
         _tabs.value.forEach { tab ->
-            val visible = tab.id == active
-            if (rendererVisible[tab.id] == visible) return@forEach
-            BrowserWebViewFactory.setTabVisible(tab.webView, visible)
-            rendererVisible[tab.id] = visible
+            val running = RendererPolicy.running(tab.id, active, hostVisible)
+            if (rendererVisible[tab.id] != running) {
+                BrowserWebViewFactory.setTabPaused(tab.webView, !running)
+                rendererVisible[tab.id] = running
+            }
+            syncRendererPriority(tab, RendererPolicy.important(tab.id, active, surfaceVisible, hostVisible))
         }
+    }
+
+    /** Writes the renderer priority only when it actually differs. */
+    private fun syncRendererPriority(tab: BrowserTab, important: Boolean) {
+        if (rendererImportant[tab.id] == important) return
+        BrowserWebViewFactory.setRendererPriority(tab.webView, important)
+        rendererImportant[tab.id] = important
     }
 
     fun selectTab(id: String) {
@@ -471,6 +525,7 @@ class BrowserTabManager(
     private fun detach(tab: BrowserTab) {
         lastProgress.remove(tab.id)
         rendererVisible.remove(tab.id)
+        rendererImportant.remove(tab.id)
         appliedCss.remove(tab.id)
         appliedSettings.remove(tab.id)
         desktopOverrides.remove(tab.id)
@@ -533,6 +588,7 @@ class BrowserTabManager(
         _activeTabId.value = null
         lastProgress.clear()
         rendererVisible.clear()
+        rendererImportant.clear()
         appliedCss.clear()
         appliedSettings.clear()
         desktopOverrides.clear()

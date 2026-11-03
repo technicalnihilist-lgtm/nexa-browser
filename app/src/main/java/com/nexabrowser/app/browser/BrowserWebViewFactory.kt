@@ -82,20 +82,34 @@ object BrowserWebViewFactory {
     }
 
     /**
+     * Pauses or resumes one tab without touching its renderer priority.
+     *
      * Background tabs are a real cost: their renderer keeps running timers,
-     * animations and scripts. Dropping an inactive tab to RENDERER_PRIORITY_WAIVED
-     * and pausing it lets Android reclaim that work, which keeps switching tabs
-     * and scrolling smooth when many are open. The active tab is restored to
-     * RENDERER_PRIORITY_IMPORTANT so it never feels slower for it.
+     * animations and scripts. Pausing an inactive tab, together with
+     * [setRendererPriority], lets Android reclaim that work, which keeps
+     * switching tabs and scrolling smooth when many are open.
      */
-    fun setTabVisible(webView: WebView, visible: Boolean) {
+    fun setTabPaused(webView: WebView, paused: Boolean) {
+        runCatching { if (paused) webView.onPause() else webView.onResume() }
+    }
+
+    /**
+     * Sets only the renderer priority, leaving the page running.
+     *
+     * Pausing is the wrong tool when the tab stays on screen but the
+     * app moves to another of its own screens: pausing would stop audio and
+     * video the user is listening to. Lowering the priority alone still lets
+     * Android reclaim the renderer under memory pressure, which is what the
+     * IMPORTANT pin otherwise forbids for the whole time the user reads
+     * Settings, Bookmarks or the tab switcher.
+     */
+    fun setRendererPriority(webView: WebView, important: Boolean) {
         runCatching {
             webView.setRendererPriorityPolicy(
-                if (visible) WebView.RENDERER_PRIORITY_IMPORTANT
+                if (important) WebView.RENDERER_PRIORITY_IMPORTANT
                 else WebView.RENDERER_PRIORITY_WAIVED,
                 true
             )
-            if (visible) webView.onResume() else webView.onPause()
         }
     }
 
@@ -389,10 +403,22 @@ private class NexaChromeClient(
     private companion object {
         /** How long a popup probe waits for its first navigation. */
         const val PROBE_TIMEOUT_MS = 15_000L
+
+        const val CONSOLE_TAG = "NexaConsole"
+
+        /** True only when this tag is actually loggable, i.e. in a debug build. */
+        val consoleLoggable: Boolean = Log.isLoggable(CONSOLE_TAG, Log.DEBUG)
     }
 
     override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
-        Log.d("NexaConsole", "${consoleMessage.message()} @${consoleMessage.lineNumber()}")
+        // Console output is the hottest callback a page has: ad, analytics and
+        // framework scripts emit dozens to hundreds of messages per load. Every
+        // one used to build a formatted string and write to logd, on the UI
+        // thread, even in a release build where the line is never read. The
+        // check is a single boolean, resolved once per process.
+        if (consoleLoggable) {
+            Log.d(CONSOLE_TAG, "${consoleMessage.message()} @${consoleMessage.lineNumber()}")
+        }
         return true
     }
 }

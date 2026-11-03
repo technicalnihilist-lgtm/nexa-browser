@@ -257,7 +257,13 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // ------------------------------------------------------------- UI state
 
-    fun setScreen(screen: NexaScreen) = _uiState.update { it.copy(screen = screen, menuOpen = false) }
+    fun setScreen(screen: NexaScreen) {
+        _uiState.update { it.copy(screen = screen, menuOpen = false) }
+        // The live page is off screen while an in-app screen is showing, so its
+        // renderer should stop being pinned at full priority — it is left
+        // running, so audio and video keep playing.
+        tabManager.setSurfaceVisible(screen == NexaScreen.BROWSER)
+    }
     fun openMenu() = _uiState.update { it.copy(menuOpen = true) }
     fun closeMenu() = _uiState.update { it.copy(menuOpen = false) }
     fun consumeMessage() = _uiState.update { it.copy(message = null) }

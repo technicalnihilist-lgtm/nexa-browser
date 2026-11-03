@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,32 +41,43 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.nexabrowser.app.util.AvatarPalette
 import com.nexabrowser.app.util.UrlUtils
 import com.nexabrowser.app.util.FaviconPathCache
 import java.io.File
 
-/** Deterministic accent colour derived from a URL, used for letter avatars. */
-private fun accentFor(url: String): Color {
-    val host = UrlUtils.hostOf(url).ifBlank { url }
-    val palette = listOf(
-        Color(0xFF2F6BFF), Color(0xFF12B5A5), Color(0xFFE5484D),
-        Color(0xFFE0A106), Color(0xFF8B5CF6), Color(0xFF0EA5E9),
-        Color(0xFFEC4899), Color(0xFF22C55E)
-    )
-    if (host.isEmpty()) return palette[0]
-    return palette[(host.hashCode().let { if (it < 0) -it else it }) % palette.size]
-}
+/**
+ * The avatar palette. Hoisted out of [LetterAvatar]: the inline `listOf(...)`
+ * built a fresh eight-element list of Color objects every time an avatar was
+ * drawn, i.e. once per row of the history, bookmark, reading-list, shortcut and
+ * top-site lists, on every recomposition, while those lists scrolled.
+ */
+private val AVATAR_PALETTE = listOf(
+    Color(0xFF2F6BFF), Color(0xFF12B5A5), Color(0xFFE5484D),
+    Color(0xFFE0A106), Color(0xFF8B5CF6), Color(0xFF0EA5E9),
+    Color(0xFFEC4899), Color(0xFF22C55E)
+)
+
+/** Deterministic accent colour for a site host, used for letter avatars. */
+private fun accentForHost(host: String): Color =
+    AVATAR_PALETTE[AvatarPalette.indexFor(host, AVATAR_PALETTE.size)]
 
 /** A round avatar showing the site's first letter, used when no icon exists. */
 @Composable
 fun LetterAvatar(url: String, size: Dp = 28.dp, modifier: Modifier = Modifier) {
-    val host = UrlUtils.hostOf(url).ifBlank { url }
-    val letter = host.removePrefix("www.").firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    // Parsed once per url instead of twice per draw, and not again for every
+    // recomposition that does not change the url. UrlUtils.hostOf builds a
+    // java.net.URI, which is far from free in a scrolling list.
+    val host = remember(url) { UrlUtils.hostOf(url).ifBlank { url } }
+    val letter = remember(host) {
+        host.removePrefix("www.").firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    }
+    val accent = remember(host) { accentForHost(host) }
     Box(
         modifier = modifier
             .size(size)
             .clip(RoundedCornerShape(size / 3.5f))
-            .background(accentFor(url)),
+            .background(accent),
         contentAlignment = Alignment.Center
     ) {
         Text(
