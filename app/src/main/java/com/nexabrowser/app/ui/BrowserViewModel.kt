@@ -46,7 +46,9 @@ import com.nexabrowser.app.util.FaviconStore
 import com.nexabrowser.app.util.UrlUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -483,25 +485,86 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // -------------------------------------------------------- find in page
 
-    fun showFind() = _uiState.update { it.copy(findActive = true) }
+    /**
+     * The WebView the find-result listener is installed on. Kept so the listener
+     * is registered once per WebView rather than once per keystroke; switching
+     * tabs — or a renderer that had to be rebuilt — installs a fresh one.
+     */
+    private var findListenerOwner: WebView? = null
+
+    /** The pending debounced search, cancelled by the next keystroke or a close. */
+    private var findJob: Job? = null
+
+    fun showFind() {
+        _uiState.update { it.copy(findActive = true) }
+        tabManager.activeTab()?.webView?.let { ensureFindListener(it) }
+    }
 
     fun hideFind() {
+        // A search that is still in flight must not publish into a bar that is
+        // no longer on screen.
+        findJob?.cancel()
+        findJob = null
         tabManager.activeTab()?.webView?.clearMatches()
         _uiState.update { it.copy(findActive = false, findQuery = "", findCurrent = 0, findTotal = 0) }
     }
 
+    /**
+     * Installs the match listener on [webView] once.
+     *
+     * The callback is the same for every search, so registering a fresh lambda
+     * on each keystroke only cost an allocation and a JNI round trip. The result
+     * write is also skipped when the numbers have not moved: WebView repeats the
+     * callback while it scans, and each repeat used to republish the whole UI
+     * state and recompose the browser surface.
+     */
+    private fun ensureFindListener(webView: WebView) {
+        if (findListenerOwner === webView) return
+        findListenerOwner = webView
+        webView.setFindListener { current, total, _ ->
+            _uiState.update { state ->
+                if (!state.findActive ||
+                    (state.findCurrent == current && state.findTotal == total)
+                ) {
+                    state
+                } else {
+                    state.copy(findCurrent = current, findTotal = total)
+                }
+            }
+        }
+    }
+
     fun findInPage(query: String) {
-        _uiState.update { it.copy(findQuery = query) }
-        val webView = tabManager.activeTab()?.webView ?: return
-        if (query.isBlank()) {
+        // Typing cancels the search the previous character queued.
+        findJob?.cancel()
+        findJob = null
+        val webView = tabManager.activeTab()?.webView
+        val blank = query.isBlank()
+        // One state write per keystroke, and none at all when nothing changed.
+        _uiState.update { state ->
+            if (blank) {
+                if (state.findQuery.isEmpty() && state.findCurrent == 0 && state.findTotal == 0) state
+                else state.copy(findQuery = query, findCurrent = 0, findTotal = 0)
+            } else if (state.findQuery == query) {
+                state
+            } else {
+                state.copy(findQuery = query)
+            }
+        }
+        if (webView == null) return
+        if (blank) {
             webView.clearMatches()
-            _uiState.update { it.copy(findCurrent = 0, findTotal = 0) }
             return
         }
-        webView.setFindListener { current, total, _ ->
-            _uiState.update { it.copy(findCurrent = current, findTotal = total) }
+        ensureFindListener(webView)
+        // findAllAsync walks the document in the renderer and answers with a
+        // batch of match callbacks. Typing "kotlin" used to fire six of those
+        // searches, each with its own batch of callbacks and state writes; one
+        // search per pause gives the same result for a fraction of the work.
+        findJob = viewModelScope.launch {
+            delay(FIND_DEBOUNCE_MS)
+            runCatching { webView.findAllAsync(query) }
         }
-        webView.findAllAsync(query)
     }
 
     fun findNext() = tabManager.activeTab()?.webView?.findNext(true)
@@ -767,6 +830,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     companion object {
         /** How many recent visits the start page lists. */
         private const val START_PAGE_VISITS = 6
+
+        /** How long find-in-page waits for typing to pause before searching. */
+        private const val FIND_DEBOUNCE_MS = 180L
         private const val HOUR = 60L * 60L * 1000L
         private const val WEEK = 7L * 24L * HOUR
 

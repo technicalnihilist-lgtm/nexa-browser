@@ -129,17 +129,45 @@ class FaviconStore(private val context: Context) {
                 if (existing != null) return@withContext existing
             }
         }
-        runCatching {
+        val target = fileFor(host)
+        // The icon is written beside its final path and renamed into place. A
+        // write that was cut short — process death, a full cache partition, a
+        // failing encode — used to leave a truncated PNG at the real path, which
+        // pathForHost then reported as a valid icon for the rest of the session
+        // and Coil could never decode: that host kept a blank icon until the
+        // cache was cleared by hand. A rename is atomic, so the target path only
+        // ever holds a complete file.
+        val temp = File(dir, "${target.name}.tmp")
+        val written = runCatching {
             val scaled = if (w == bitmap.width && h == bitmap.height) bitmap
             else Bitmap.createScaledBitmap(bitmap, w, h, true)
-            val f = fileFor(host)
-            FileOutputStream(f).use { out -> scaled.compress(Bitmap.CompressFormat.PNG, 100, out) }
-            if (scaled !== bitmap) scaled.recycle()
-            synchronized(storedSizes) { storedSizes[host] = signature }
-            synchronized(paths) { paths[host] = f.absolutePath }
-            FaviconPathCache.markStored(f.absolutePath)
-            f.absolutePath
-        }.getOrNull()
+            try {
+                FileOutputStream(temp).use { out ->
+                    if (!scaled.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                        error("favicon encode produced no data")
+                    }
+                }
+            } finally {
+                if (scaled !== bitmap) scaled.recycle()
+            }
+            if (!temp.renameTo(target)) {
+                // renameTo does not replace an existing file on every
+                // filesystem, so drop the old icon and try once more before
+                // giving up on this one.
+                target.delete()
+                if (!temp.renameTo(target)) error("favicon rename failed")
+            }
+            true
+        }.getOrElse {
+            runCatching { temp.delete() }
+            false
+        }
+        if (!written) return@withContext null
+
+        synchronized(storedSizes) { storedSizes[host] = signature }
+        synchronized(paths) { paths[host] = target.absolutePath }
+        FaviconPathCache.markStored(target.absolutePath)
+        target.absolutePath
     }
 
     fun clear() {
