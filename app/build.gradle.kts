@@ -17,8 +17,8 @@ android {
         applicationId = "com.nexabrowser.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 25
-        versionName = "1.3.15"
+        versionCode = 26
+        versionName = "1.3.16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -50,9 +50,13 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        // Two backend threads: the code generation phase is the slowest part of
-        // a cold build on a low-core CI box, and it parallelises cleanly.
-        freeCompilerArgs += listOf("-Xjvm-default=all", "-Xbackend-threads=2")
+        // One backend thread by default: the code generation phase is the
+        // slowest part of a cold build, and on the single-core build hosts this
+        // project targets a second thread only ever competes with the first for
+        // the same core. -Pnexa.backendThreads=2 restores the old behaviour on a
+        // machine that really has the cores.
+        val backendThreads = (findProperty("nexa.backendThreads") as String?) ?: "1"
+        freeCompilerArgs += listOf("-Xjvm-default=all", "-Xbackend-threads=$backendThreads")
     }
 
     buildFeatures {
@@ -71,6 +75,13 @@ android {
             isIncludeAndroidResources = true
         }
     }
+}
+
+// Compose's per-call source information is a tooling aid for previews and the
+// layout inspector. It costs compiler time on every build and bytes in the APK,
+// so it is left out of the shipped binary.
+composeCompiler {
+    includeSourceInformation = false
 }
 
 ksp {

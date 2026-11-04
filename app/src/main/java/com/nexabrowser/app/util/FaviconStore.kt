@@ -36,6 +36,34 @@ object FaviconSizing {
 }
 
 /**
+ * Pure eviction rule for the on-disk favicon cache, kept free of Android types so
+ * it can be unit tested on the JVM.
+ *
+ * [FaviconStore] writes one PNG per host the user ever visits and nothing ever
+ * removed them, so the directory grew with the number of hosts in the whole
+ * session history and was only reclaimed when Android chose to wipe the cache
+ * directory — which it does not do on a device with free space. The store keeps
+ * the newest [FaviconStore.MAX_STORED_ICONS] files and drops the rest.
+ */
+object FaviconPruning {
+
+    /**
+     * Names of the files to delete from [entries] (file name -> last modified
+     * time in milliseconds) so that at most [max] remain. The newest files are
+     * kept; ties keep the later name so the result is deterministic.
+     */
+    fun victims(entries: List<Pair<String, Long>>, max: Int): List<String> {
+        if (max < 0) return entries.map { it.first }
+        val excess = entries.size - max
+        if (excess <= 0) return emptyList()
+        return entries
+            .sortedWith(compareBy<Pair<String, Long>> { it.second }.thenBy { it.first })
+            .take(excess)
+            .map { it.first }
+    }
+}
+
+/**
  * Remembers which favicon files exist on disk.
  *
  * The icon composable asks "does this path exist?" while it is being drawn — for
@@ -164,10 +192,43 @@ class FaviconStore(private val context: Context) {
         }
         if (!written) return@withContext null
 
+        pruneStoredIcons()
+
         synchronized(storedSizes) { storedSizes[host] = signature }
         synchronized(paths) { paths[host] = target.absolutePath }
         FaviconPathCache.markStored(target.absolutePath)
         target.absolutePath
+    }
+
+    /** Set once the directory has been capped for this process. */
+    @Volatile
+    private var pruned = false
+
+    /**
+     * Caps the number of icons kept on disk.
+     *
+     * One PNG is written per host the user visits and nothing used to remove
+     * them, so the cache directory only ever grew: a heavy session history left
+     * thousands of small files behind, and Android does not reclaim an app cache
+     * directory on a device that still has free space. The directory is listed
+     * once per process, on the IO dispatcher, straight after an icon is written —
+     * the oldest files beyond [MAX_STORED_ICONS] go, and the in-memory lookups
+     * are dropped so neither of them can keep pointing at a deleted file.
+     */
+    private fun pruneStoredIcons() {
+        if (pruned) return
+        pruned = true
+        runCatching {
+            val files = dir.listFiles()?.filter { it.isFile } ?: return@runCatching
+            if (files.size <= MAX_STORED_ICONS) return@runCatching
+            val entries = files.map { it.name to it.lastModified() }
+            FaviconPruning.victims(entries, MAX_STORED_ICONS).forEach { name ->
+                runCatching { File(dir, name).delete() }
+            }
+            synchronized(paths) { paths.clear() }
+            synchronized(storedSizes) { storedSizes.clear() }
+            FaviconPathCache.clear()
+        }
     }
 
     fun clear() {
@@ -181,5 +242,8 @@ class FaviconStore(private val context: Context) {
 
     private companion object {
         const val MAX_CACHED_HOSTS = 256
+
+        /** Icons kept on disk; older ones are pruned once per process. */
+        const val MAX_STORED_ICONS = 400
     }
 }

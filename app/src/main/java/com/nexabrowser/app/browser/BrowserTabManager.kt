@@ -469,6 +469,23 @@ class BrowserTabManager(
     // meaningful jumps are published.
     private val lastProgress = HashMap<String, Int>()
 
+    /**
+     * The user pressed stop on a page that was still loading.
+     *
+     * WebView does not reliably deliver `onPageFinished` for a cancelled load,
+     * so the tab stayed `isLoading = true` with the progress bar frozen at its
+     * last tick: the toolbar kept offering "stop" for a page that had already
+     * stopped, and nothing short of a reload or a navigation cleared it. The
+     * tab is settled here instead, and the progress memo is set to complete so a
+     * late tick from the cancelled load cannot flip it back.
+     */
+    fun onLoadStopped(tabId: String?) {
+        val id = tabId ?: return
+        if (byId[id] == null) return
+        lastProgress[id] = 100
+        updateTab(id) { it.copy(isLoading = false, progress = 100) }
+    }
+
     override fun onProgress(tabId: String, progress: Int) {
         val previous = lastProgress[tabId] ?: -1
         val meaningful = progress == 0 || progress >= 100 || abs(progress - previous) >= 5

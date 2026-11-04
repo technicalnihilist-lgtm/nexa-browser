@@ -287,7 +287,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun goBack(): Boolean = navigation.goBack()
     fun goForward(): Boolean = navigation.goForward()
     fun reload() = navigation.reload()
-    fun stopLoading() = navigation.stopLoading()
+    /**
+     * Stops the current load and settles the tab's loading state. The WebView
+     * call alone left the tab marked as loading, because a cancelled load does
+     * not reliably produce onPageFinished.
+     */
+    fun stopLoading() {
+        navigation.stopLoading()
+        tabManager.onLoadStopped(tabManager.activeTabId.value)
+    }
 
     fun goHome() {
         val tab = tabManager.activeTab() ?: return
