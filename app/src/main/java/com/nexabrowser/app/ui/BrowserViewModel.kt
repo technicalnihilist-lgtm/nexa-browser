@@ -690,6 +690,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 decisions.any { it.second == PermissionDecision.DENY } -> callback.deny()
                 decisions.all { it.second == PermissionDecision.ALLOW } -> callback.grant(resources)
                 else -> {
+                    // The prompt can only show one request. A camera request
+                    // from a background tab used to replace the pending one
+                    // without answering it, and a PermissionRequest that is
+                    // never granted or denied keeps that page waiting. Deny it
+                    // — the safe answer — before it is dropped.
+                    pendingPermissionRequest?.let { runCatching { it.deny() } }
+                    pendingGeoCallback?.let { runCatching { it.invoke(pendingGeoOrigin ?: origin, false, false) } }
+                    pendingGeoCallback = null
+                    pendingGeoOrigin = null
                     pendingPermissionRequest = callback
                     _uiState.update {
                         it.copy(
@@ -713,6 +722,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
                 PermissionDecision.ALLOW -> callback.invoke(origin, true, false)
                 PermissionDecision.DENY -> callback.invoke(origin, false, false)
                 null -> {
+                    pendingPermissionRequest?.let { runCatching { it.deny() } }
+                    pendingPermissionRequest = null
+                    pendingGeoCallback?.let { runCatching { it.invoke(pendingGeoOrigin ?: origin, false, false) } }
                     pendingGeoCallback = callback
                     pendingGeoOrigin = origin
                     _uiState.update {
@@ -771,13 +783,34 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // --------------------------------------------------------- js dialogs
 
+    /**
+     * A dialog the page raised. Only one can be shown at a time, so anything
+     * still pending is dismissed first.
+     *
+     * A page's JavaScript blocks until its JsResult is answered. When a second
+     * dialog arrived — another tab raising an alert, a prompt fired during a
+     * navigation — the previous result was simply overwritten and never
+     * resolved, leaving that WebView's JavaScript thread waiting forever: the
+     * page stopped responding and nothing on screen explained why. Cancelling
+     * the older result unblocks it, exactly as the system dialog would have.
+     */
+    private fun dismissPendingDialogs() {
+        pendingJsResult?.let { runCatching { it.cancel() } }
+        pendingJsPromptResult?.let { runCatching { it.cancel() } }
+        pendingJsResult = null
+        pendingJsPromptResult = null
+        pendingJsType = null
+    }
+
     fun onJsDialog(type: JsDialogType, message: String, defaultValue: String?, result: android.webkit.JsResult) {
+        dismissPendingDialogs()
         pendingJsResult = result
         pendingJsType = type
         _uiState.update { it.copy(jsDialog = JsDialogState(type, message, defaultValue)) }
     }
 
     fun onJsPrompt(message: String, defaultValue: String?, result: JsPromptResult) {
+        dismissPendingDialogs()
         pendingJsPromptResult = result
         pendingJsType = JsDialogType.PROMPT
         _uiState.update { it.copy(jsDialog = JsDialogState(JsDialogType.PROMPT, message, defaultValue)) }

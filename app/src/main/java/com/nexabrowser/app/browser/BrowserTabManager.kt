@@ -9,8 +9,10 @@ import com.nexabrowser.app.domain.model.NewTabBehavior
 import com.nexabrowser.app.util.FaviconSizing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -584,7 +586,40 @@ class BrowserTabManager(
 
     /** Rebuilds the whole published list. Used for structural changes only. */
     private fun publishInfos() {
+        backgroundDirty.clear()
         _tabInfos.value = _tabs.value.map { it.info }
+    }
+
+    /**
+     * Tabs whose published entry is stale but which the user cannot see.
+     *
+     * A WebView fires progress, title, url, favicon and navigation callbacks
+     * dozens of times per page load, and every one of them publishes a new tab
+     * list, which recomposes the tab strip and the tab overview. For the tab on
+     * screen that is exactly right. For a tab loading in the background it is
+     * work the user cannot see — and the worst case is the common one: a
+     * restored session starts every saved tab at once, so the main thread spent
+     * the first seconds of a cold start rebuilding and recomposing the tab list
+     * for tabs that were not on screen while the visible page was trying to
+     * paint its first frame.
+     *
+     * Background tabs are therefore collected here and published together, at
+     * most once per [BACKGROUND_PUBLISH_DELAY_MS]. Selecting a tab, closing one
+     * or any structural change still publishes immediately through
+     * [publishInfos], so nothing that is on screen is ever stale.
+     */
+    private val backgroundDirty = HashSet<String>()
+    private var backgroundFlush: Job? = null
+
+    private fun markBackgroundDirty(id: String) {
+        backgroundDirty.add(id)
+        if (backgroundFlush?.isActive == true) return
+        backgroundFlush = scope.launch {
+            delay(BACKGROUND_PUBLISH_DELAY_MS)
+            if (backgroundDirty.isEmpty()) return@launch
+            // One list rebuild for every tab that changed in the window.
+            publishInfos()
+        }
     }
 
     /**
@@ -615,7 +650,10 @@ class BrowserTabManager(
         val tab = _tabs.value.firstOrNull { it.id == id } ?: return
         val before = tab.info
         tab.update(transform)
-        if (tab.info != before) publishInfo(tab)
+        if (tab.info == before) return
+        // The visible tab is published at once; a background one is folded into
+        // the next batch so it cannot recompose the chrome the user is looking at.
+        if (id == _activeTabId.value) publishInfo(tab) else markBackgroundDirty(id)
     }
 
     private fun rememberClosed(tab: BrowserTab) {
@@ -649,5 +687,13 @@ class BrowserTabManager(
         private const val TAG = "NexaTabs"
         private const val MAX_CLOSED_TABS = 20
         private const val START_PROGRESS = 5
+
+        /**
+         * How long background-tab changes wait before they are published
+         * together. Short enough that a tab strip title never looks wrong when
+         * the user glances at it, long enough to fold a whole page load's worth
+         * of progress ticks into a single list write.
+         */
+        private const val BACKGROUND_PUBLISH_DELAY_MS = 250L
     }
 }
