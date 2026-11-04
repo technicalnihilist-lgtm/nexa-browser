@@ -48,6 +48,19 @@ class BrowserTabManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _tabs = MutableStateFlow<List<BrowserTab>>(emptyList())
+
+    /**
+     * id -> tab, kept in step with [_tabs] by [setTabs]. Every WebView callback
+     * resolves its tab through this instead of scanning the list.
+     */
+    private val byId = TabLookup<BrowserTab>()
+
+    /** Publishes a new tab list and re-indexes it in one step. */
+    private fun setTabs(tabs: List<BrowserTab>) {
+        byId.setAll(tabs) { it.id }
+        _tabs.value = tabs
+    }
+
     private val _tabInfos = MutableStateFlow<List<TabInfo>>(emptyList())
     val tabInfos: StateFlow<List<TabInfo>> = _tabInfos.asStateFlow()
 
@@ -77,9 +90,9 @@ class BrowserTabManager(
 
     fun visibleTabs(): List<TabInfo> = _tabInfos.value.filter { it.isPrivate == _privateMode.value }
 
-    fun activeTab(): BrowserTab? = _tabs.value.firstOrNull { it.id == _activeTabId.value }
+    fun activeTab(): BrowserTab? = byId[_activeTabId.value]
 
-    fun tabById(id: String): BrowserTab? = _tabs.value.firstOrNull { it.id == id }
+    fun tabById(id: String): BrowserTab? = byId[id]
 
     fun activeInfo(): TabInfo? = activeTab()?.info
 
@@ -94,7 +107,7 @@ class BrowserTabManager(
             else -> ""
         }
         val tab = createTabInternal(target, isPrivate)
-        _tabs.value = _tabs.value + tab
+        setTabs(_tabs.value + tab)
         if (isPrivate && !_privateMode.value) _privateMode.value = true
         if (switchTo) _activeTabId.value = tab.id
         syncTabVisibility()
@@ -122,6 +135,32 @@ class BrowserTabManager(
                 .onFailure { Log.w(TAG, "Rejected start URL: $url"); webView.loadUrl("about:blank") }
         }
         return tab
+    }
+
+    /**
+     * Re-creates a saved session as one batch.
+     *
+     * Restoring used to call [newTab] once per saved tab. Each of those rebuilt
+     * and published the whole tab list, walked every tab to re-sync renderer
+     * priority, and launched its own private-count coroutine — so a ten-tab
+     * session cost ten list rebuilds, ten full visibility sweeps and ten
+     * coroutines before the first frame could be drawn, on top of the ten
+     * WebViews being constructed. Here the WebViews are still created one at a
+     * time (they have to be), but the published list, the renderer priorities
+     * and the private-tab count are settled exactly once at the end.
+     *
+     * The first restored tab becomes active, which is what the caller used to do
+     * with an explicit selectTab() straight afterwards.
+     */
+    fun restoreTabs(urls: List<String>) {
+        if (urls.isEmpty()) return
+        val created = ArrayList<BrowserTab>(urls.size)
+        for (url in urls) created.add(createTabInternal(url, false))
+        setTabs(_tabs.value + created)
+        if (_activeTabId.value == null) _activeTabId.value = created.first().id
+        syncTabVisibility()
+        publishInfos()
+        syncPrivateCount()
     }
 
     /**
@@ -199,7 +238,7 @@ class BrowserTabManager(
         val tab = tabById(id) ?: return
         val wasActive = _activeTabId.value == id
         detach(tab)
-        _tabs.value = _tabs.value.filterNot { it.id == id }
+        setTabs(_tabs.value.filterNot { it.id == id })
         rememberClosed(tab)
         if (wasActive) {
             // The tab that takes over and the browsing mode must agree. Picking
@@ -230,7 +269,8 @@ class BrowserTabManager(
             detach(tab)
             rememberClosed(tab)
         }
-        _tabs.value = _tabs.value.filterNot { t -> targets.any { it.id == t.id } }
+        val closing = targets.mapTo(HashSet(targets.size)) { it.id }
+        setTabs(_tabs.value.filterNot { it.id in closing })
         if (_tabs.value.isEmpty()) {
             _privateMode.value = false
             newTab(url = "", isPrivate = false)
@@ -247,7 +287,7 @@ class BrowserTabManager(
         val tab = tabById(id) ?: return
         val url = tab.info.url.takeIf { it.isNotBlank() && it != "about:blank" }
         val copy = createTabInternal(url, tab.isPrivate)
-        _tabs.value = _tabs.value + copy
+        setTabs(_tabs.value + copy)
         _activeTabId.value = copy.id
         // The source tab must now be paused and waived, exactly as it would be
         // if the user had switched tabs by hand.
@@ -562,7 +602,7 @@ class BrowserTabManager(
 
         val updated = _tabs.value.toMutableList()
         updated[index] = fresh
-        _tabs.value = updated
+        setTabs(updated)
 
         if (urlToLoad.isNullOrBlank()) webView.loadUrl("about:blank")
         else runCatching { webView.loadUrl(urlToLoad) }
@@ -647,7 +687,7 @@ class BrowserTabManager(
     }
 
     private fun updateTab(id: String, transform: (TabInfo) -> TabInfo) {
-        val tab = _tabs.value.firstOrNull { it.id == id } ?: return
+        val tab = byId[id] ?: return
         val before = tab.info
         tab.update(transform)
         if (tab.info == before) return
@@ -671,7 +711,7 @@ class BrowserTabManager(
     /** Destroys every WebView and stops all observation. */
     fun shutdown() {
         _tabs.value.forEach { runCatching { it.destroy() } }
-        _tabs.value = emptyList()
+        setTabs(emptyList())
         _tabInfos.value = emptyList()
         _activeTabId.value = null
         lastProgress.clear()

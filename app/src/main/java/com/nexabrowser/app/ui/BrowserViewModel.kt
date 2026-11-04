@@ -232,11 +232,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             if (saved.isEmpty()) {
                 tabManager.newTab(url = launchUrl ?: "", isPrivate = false)
             } else {
-                saved.sortedBy { it.third }.forEach { (url, _, _) ->
-                    if (UrlUtils.isLoadableUrl(url)) tabManager.newTab(url = url, isPrivate = false, switchTo = false)
-                }
+                // One batch: the saved tabs are created together and the tab
+                // list, renderer priorities and private-tab count are settled
+                // once, instead of once per restored tab.
+                val urls = saved.sortedBy { it.third }
+                    .map { it.first }
+                    .filter { UrlUtils.isLoadableUrl(it) }
+                tabManager.restoreTabs(urls)
                 if (tabManager.tabInfos.value.isEmpty()) tabManager.newTab(url = "", isPrivate = false)
-                tabManager.tabInfos.value.firstOrNull()?.let { tabManager.selectTab(it.id) }
                 if (!launchUrl.isNullOrBlank()) tabManager.newTab(url = launchUrl, isPrivate = false)
             }
         }
