@@ -52,28 +52,44 @@ class PrivateBrowsingManager(private val context: Context) {
      * Called whenever the number of open private tabs changes. The session ends
      * exactly once, when the count falls from a positive value to zero.
      */
-    suspend fun syncOpenPrivateTabs(count: Int, clearCookies: Boolean) {
+    suspend fun syncOpenPrivateTabs(
+        count: Int,
+        clearCookies: Boolean,
+        liveWebView: WebView? = null
+    ) {
         val wasActive = lastCount > 0
         lastCount = count.coerceAtLeast(0)
         if (wasActive && lastCount == 0) {
-            endSession(clearCookies)
+            endSession(clearCookies, liveWebView)
         }
     }
 
-    suspend fun endSession(clearCookies: Boolean) = withContext(Dispatchers.Main) {
+    suspend fun endSession(clearCookies: Boolean, liveWebView: WebView? = null) = withContext(Dispatchers.Main) {
         sessionVisitedUrls.clear()
         runCatching { WebStorage.getInstance().deleteAllData() }
             .onFailure { Log.w(TAG, "Could not clear DOM storage", it) }
-        // clearCache() is an instance method, so a throwaway WebView is needed.
-        // It must be destroyed: a WebView that is merely dropped keeps a live
-        // renderer process (and its memory) for the rest of the app's life, and
-        // this ran every time the last private tab closed.
+        // clearCache() is an instance method. An already-live WebView is used
+        // when one was handed over, because the alternative is expensive: a
+        // freshly constructed WebView initialises the Chromium provider and
+        // starts a whole renderer process, only to call clearCache() on it and
+        // destroy it again — all on the main thread, every single time the last
+        // private tab closed. Closing that tab always leaves a regular tab
+        // behind (the tab manager opens a blank one), so the fallback below is
+        // the rare path rather than the normal one.
+        //
+        // The throwaway view is still destroyed when it is used: a WebView that
+        // is merely dropped keeps a live renderer process (and its memory) for
+        // the rest of the app's life.
         runCatching {
-            val temp = WebView(context)
-            try {
-                temp.clearCache(true)
-            } finally {
-                runCatching { temp.destroy() }
+            if (liveWebView != null) {
+                liveWebView.clearCache(true)
+            } else {
+                val temp = WebView(context)
+                try {
+                    temp.clearCache(true)
+                } finally {
+                    runCatching { temp.destroy() }
+                }
             }
         }.onFailure { Log.w(TAG, "Could not clear the WebView cache", it) }
         if (clearCookies) {

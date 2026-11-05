@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,9 +81,15 @@ fun LetterAvatar(url: String, size: Dp = 28.dp, modifier: Modifier = Modifier) {
 /** Favicon from a live bitmap (tabs, address bar). */
 @Composable
 fun BitmapFavicon(bitmap: Bitmap?, url: String, size: Dp = 24.dp, modifier: Modifier = Modifier) {
-    if (bitmap != null) {
+    // asImageBitmap() hands back a fresh wrapper on every call, and this
+    // composable sits in the tab strip and the address bar — both of which
+    // recompose on every progress tick, title change and navigation callback of
+    // a page load. Remembering it per bitmap keeps those frames allocation-free
+    // without changing what is drawn.
+    val image = remember(bitmap) { bitmap?.asImageBitmap() }
+    if (image != null) {
         Image(
-            bitmap = bitmap.asImageBitmap(),
+            bitmap = image,
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = modifier.size(size).clip(RoundedCornerShape(6.dp))
@@ -97,7 +104,10 @@ fun BitmapFavicon(bitmap: Bitmap?, url: String, size: Dp = 24.dp, modifier: Modi
 fun CachedFavicon(path: String?, url: String, size: Dp = 28.dp, modifier: Modifier = Modifier) {
     // Answered from memory after the first lookup: a stat() per row per
     // recomposition was happening on the main thread while the list scrolled.
-    val file = path?.takeIf { FaviconPathCache.exists(it) }?.let { File(it) }
+    // Remembered per path as well: this runs for every row of the history,
+    // bookmark and reading-list lists, and a new File per recomposition was
+    // allocation (and a new Coil cache key lookup) on every scrolled frame.
+    val file = remember(path) { path?.takeIf { FaviconPathCache.exists(it) }?.let { File(it) } }
     if (file != null) {
         AsyncImage(
             model = file,

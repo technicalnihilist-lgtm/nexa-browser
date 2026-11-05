@@ -722,7 +722,14 @@ class BrowserTabManager(
 
     private fun syncPrivateCount() {
         val count = _tabs.value.count { it.isPrivate }
-        scope.launch { privateManager.syncOpenPrivateTabs(count, settingsProvider().cookiesEnabled) }
+        // A live WebView is handed over so that ending a private session can
+        // clear the HTTP cache through a view that already exists, instead of
+        // constructing and destroying a throwaway WebView — which starts and
+        // tears down a whole renderer process — on the main thread at the
+        // moment the last private tab closes.
+        val live = (_tabs.value.firstOrNull { it.id == _activeTabId.value }
+            ?: _tabs.value.firstOrNull())?.webView
+        scope.launch { privateManager.syncOpenPrivateTabs(count, settingsProvider().cookiesEnabled, live) }
     }
 
     /** Destroys every WebView and stops all observation. */
