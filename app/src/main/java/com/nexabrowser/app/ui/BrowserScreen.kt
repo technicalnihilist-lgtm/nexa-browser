@@ -17,6 +17,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -85,6 +87,7 @@ fun BrowserScreen(
     viewModel: BrowserViewModel,
     uiState: BrowserUiState,
     activeTab: TabInfo?,
+    progress: State<Int>,
     tabCount: Int,
     isBookmarked: Boolean,
     settings: BrowserSettings,
@@ -125,8 +128,6 @@ fun BrowserScreen(
         animationSpec = spring(dampingRatio = 0.85f, stiffness = 380f),
         label = "footerShift"
     )
-
-    val progress = (activeTab?.progress ?: 0).coerceIn(0, 100)
 
     Box(modifier.fillMaxSize()) {
         // ---- Page ------------------------------------------------------
@@ -170,16 +171,7 @@ fun BrowserScreen(
         }
 
         // ---- 3dp loading bar at the very top ---------------------------
-        if (progress in 1..99) {
-            Box(
-                Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .fillMaxWidth(progress / 100f)
-                    .height(3.dp)
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-        }
+        LoadingBar(progress)
 
         // ---- Find on page ---------------------------------------------
         if (uiState.findActive) {
@@ -262,6 +254,29 @@ fun BrowserScreen(
                 onTabs = { viewModel.setScreen(NexaScreen.TABS) }
             )
         }
+    }
+}
+
+/**
+ * The 3dp page-load bar.
+ *
+ * The progress value is read *here*, inside this composable's own scope, so a
+ * progress tick invalidates this Box alone. Reading it in [BrowserScreen]'s body
+ * — which is what happened before — made every tick recompose the page host,
+ * the address bar, the navigation dock and the error overlay with it.
+ */
+@Composable
+private fun BoxScope.LoadingBar(progress: State<Int>) {
+    val value = progress.value.coerceIn(0, 100)
+    if (value in 1..99) {
+        Box(
+            Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .fillMaxWidth(value / 100f)
+                .height(3.dp)
+                .background(MaterialTheme.colorScheme.primary)
+        )
     }
 }
 

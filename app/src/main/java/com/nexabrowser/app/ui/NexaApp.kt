@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nexabrowser.app.browser.JsDialogType
+import com.nexabrowser.app.browser.TabChromeState
 import com.nexabrowser.app.ui.components.BrowserMenuSheet
 import com.nexabrowser.app.ui.components.ScreenTopBar
 import com.nexabrowser.app.ui.screens.BookmarksScreen
@@ -76,8 +78,12 @@ fun NexaApp(
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val tabs by viewModel.tabManager.tabInfos.collectAsStateWithLifecycle()
-    val activeId by viewModel.tabManager.activeTabId.collectAsStateWithLifecycle()
+    // Collected as State objects, not as values: everything derived from the tab
+    // list is computed inside a derivedStateOf below, so this composable is
+    // invalidated only when the derived value actually differs.
+    val tabsState = viewModel.tabManager.tabInfos.collectAsStateWithLifecycle()
+    val activeIdState = viewModel.tabManager.activeTabId.collectAsStateWithLifecycle()
+    val activeId by activeIdState
     val privateMode by viewModel.tabManager.privateMode.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
     val shortcuts by viewModel.shortcuts.collectAsStateWithLifecycle()
@@ -91,8 +97,31 @@ fun NexaApp(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    val activeTab = tabs.firstOrNull { it.id == activeId }
-    val visibleTabs = tabs.filter { it.isPrivate == privateMode }
+    // The active tab as the chrome sees it. Progress is neutralised in the
+    // snapshot (see TabChromeState): a page load publishes a new TabInfo on each
+    // of its ~20 progress ticks, and reading the raw tab here recomposed this
+    // root, the theme, the animated screen container and the whole browser
+    // surface for a change that only the 3dp loading bar draws.
+    val activeTab by remember {
+        derivedStateOf {
+            TabChromeState.of(tabsState.value.firstOrNull { it.id == activeIdState.value })
+        }
+    }
+    // Same treatment for the tab strip: it shows titles and icons, never a
+    // progress figure, so a background tab finishing its load must not rebuild
+    // it. Derived lists compare structurally, so an equal list is not published.
+    val visibleTabs by remember {
+        derivedStateOf {
+            val privateTab = privateMode
+            TabChromeState.of(tabsState.value.filter { it.isPrivate == privateTab })
+        }
+    }
+    // The real progress, read only by the composable that draws the bar.
+    val progressState = remember {
+        derivedStateOf {
+            tabsState.value.firstOrNull { it.id == activeIdState.value }?.progress ?: 0
+        }
+    }
 
     LaunchedEffect(uiState.message) {
         uiState.message?.let {
@@ -139,6 +168,7 @@ fun NexaApp(
                     viewModel = viewModel,
                     uiState = uiState,
                     activeTab = activeTab,
+                    progress = progressState,
                     tabCount = visibleTabs.size,
                     isBookmarked = isBookmarked,
                     settings = settings,

@@ -23,6 +23,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.nexabrowser.app.BuildConfig
 import com.nexabrowser.app.data.prefs.BrowserSettings
 import com.nexabrowser.app.util.UrlUtils
 
@@ -421,8 +422,19 @@ private class NexaChromeClient(
         const val PROBE_TIMEOUT_MS = 15_000L
     }
 
+    /**
+     * Page console output.
+     *
+     * A page that logs — analytics bundles, ad scripts and framework dev builds
+     * do it hundreds of times per load — used to cost two string allocations and
+     * a logcat write per message, on the thread the WebView runs its callbacks
+     * on, in release builds as well. Nothing reads those lines outside a debug
+     * build, so the write is skipped there.
+     */
     override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
-        Log.d("NexaConsole", "${consoleMessage.message()} @${consoleMessage.lineNumber()}")
+        if (BuildConfig.DEBUG) {
+            Log.d("NexaConsole", "${consoleMessage.message()} @${consoleMessage.lineNumber()}")
+        }
         return true
     }
 }
