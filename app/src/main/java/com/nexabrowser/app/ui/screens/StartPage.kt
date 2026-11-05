@@ -47,6 +47,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.nexabrowser.app.domain.model.HistoryEntry
 import com.nexabrowser.app.domain.model.Shortcut
 import com.nexabrowser.app.domain.model.TopSite
@@ -58,6 +61,7 @@ import com.nexabrowser.app.util.UrlUtils
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 /** Background presets offered in Settings; the value is what gets persisted. */
 object StartBackgrounds {
@@ -95,14 +99,23 @@ fun StartPage(
     val bg = StartBackgrounds.brush(backgroundId, extras.isDark)
 
     var now by remember { mutableStateOf(Date()) }
-    // Ticks only while the clock is actually on screen. The loop used to run for
-    // the whole life of the start page with the clock switched off, waking the
-    // main thread every 30 seconds to write state that nothing reads.
-    LaunchedEffect(showClock) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    // Ticks only while the clock is actually on screen, and only while the app
+    // is on screen too. The loop used to run for the whole life of the start
+    // page with the clock switched off, waking the main thread every 30 seconds
+    // to write state that nothing reads. It also kept waking it with the app in
+    // the background, where a compose effect outlives the visible window and
+    // nothing can see the clock: a permanent 30-second wake-up on a page the
+    // user left hours ago. Tying the loop to RESUMED stops that, and the first
+    // tick on return re-reads the time, so the clock is never stale when it is
+    // visible.
+    LaunchedEffect(showClock, lifecycleOwner) {
         if (!showClock) return@LaunchedEffect
-        while (true) {
-            now = Date()
-            kotlinx.coroutines.delay(30_000)
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                now = Date()
+                delay(30_000)
+            }
         }
     }
 

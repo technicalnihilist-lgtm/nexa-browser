@@ -87,6 +87,15 @@ object AdBlocker {
 
     fun blockedCount(): Int = hosts.size
 
+    /**
+     * Drops the host → decision memo. Called when the system reports memory
+     * pressure: every entry is one boolean and rebuilds itself on the next
+     * request for that host, so nothing is lost by letting it go.
+     */
+    fun trimCaches() {
+        decisions.clear()
+    }
+
     /** An empty response used to satisfy (and thus drop) a blocked request. */
     fun emptyResponse(): android.webkit.WebResourceResponse =
         android.webkit.WebResourceResponse(

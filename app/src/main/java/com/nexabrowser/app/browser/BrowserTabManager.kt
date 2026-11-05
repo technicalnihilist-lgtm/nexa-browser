@@ -6,6 +6,7 @@ import android.util.Log
 import com.nexabrowser.app.data.prefs.BrowserSettings
 import com.nexabrowser.app.data.repository.BrowserRepository
 import com.nexabrowser.app.domain.model.NewTabBehavior
+import com.nexabrowser.app.util.FaviconPathCache
 import com.nexabrowser.app.util.FaviconSizing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -195,6 +196,37 @@ class BrowserTabManager(
         // a backgrounded app costs no renderer CPU at all. Every WebView is
         // resumed individually in syncTabVisibility() when the app returns.
         _tabs.value.firstOrNull()?.let { BrowserWebViewFactory.pauseTimers(it.webView) }
+    }
+
+    /**
+     * The system is short of memory.
+     *
+     * Until now nothing here answered that call: the ad blocker's host → decision
+     * table, the favicon stat() memo and one renderer process per open tab were
+     * all kept until the platform had to kill the process, which costs the user
+     * every open tab. The rebuildable caches are dropped at any trim level; the
+     * memory behind background renderers is only released under real pressure,
+     * so an ordinary trip to the background never repaints a page on return.
+     *
+     * The active tab is skipped deliberately: freeMemory() on the page the user
+     * is looking at would throw away its decoded images and make it redraw for no
+     * gain while it is the one renderer that must stay warm.
+     */
+    @Suppress("DEPRECATION")
+    fun onTrimMemory(level: Int) {
+        if (MemoryTrim.dropCaches(level)) {
+            AdBlocker.trimCaches()
+            FaviconPathCache.clear()
+        }
+        if (!MemoryTrim.freeRendererMemory(level)) return
+        val active = _activeTabId.value
+        _tabs.value.forEach { tab ->
+            if (tab.id == active) return@forEach
+            // freeMemory() is a hint that the platform honours on older WebView
+            // versions and treats as a no-op on newer ones, which is exactly why
+            // it is only asked for when the process is already under pressure.
+            runCatching { tab.webView.freeMemory() }
+        }
     }
 
     /** The host Activity is visible again: only the active tab resumes. */

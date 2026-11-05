@@ -865,6 +865,9 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     /** The Activity left the screen: no renderer keeps running in the background. */
     fun onHostStopped() = tabManager.onHostStopped()
 
+    /** The system is short of memory: give back what can be rebuilt cheaply. */
+    fun onTrimMemory(level: Int) = tabManager.onTrimMemory(level)
+
     override fun onCleared() {
         saveSession()
         runCatching { tabManager.shutdown() }

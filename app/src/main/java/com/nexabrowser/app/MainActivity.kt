@@ -127,6 +127,15 @@ class MainActivity : ComponentActivity(), BrowserActivityHost {
         super.onStop()
     }
 
+    /**
+     * Forwarded to the engine, which drops its rebuildable caches at every level
+     * and frees background renderer memory when the process is really short.
+     */
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        viewModel.onTrimMemory(level)
+    }
+
     override fun onDestroy() {
         // Release the host only if this instance is still the installed one. A
         // recreated Activity installs itself in onCreate, which runs *before* the
