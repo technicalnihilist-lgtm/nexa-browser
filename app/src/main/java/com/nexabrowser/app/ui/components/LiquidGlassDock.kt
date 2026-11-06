@@ -113,30 +113,63 @@ fun LiquidGlassDock(
 
             val lensSize = minOf(slotWidth * 0.98f, maxHeight)
 
+            // Everything below is read while the spring is running, so this
+            // scope recomposes on every animation frame (~60 a second for the
+            // length of a tab switch). The shapes and brushes depend only on
+            // the style, never on the animated position, so they are built once
+            // per style instead of once per frame: a frame used to allocate
+            // three Brush objects, three colour lists, a BorderStroke and five
+            // RoundedCornerShapes that were identical to the previous frame's.
+            val slotShape = remember { RoundedCornerShape(21.dp) }
+            val capsuleHighlight = remember(isGlass) {
+                Brush.horizontalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.White.copy(alpha = if (isGlass) 0.40f else 0.95f),
+                        Color.Transparent
+                    )
+                )
+            }
+            val lensFill = remember {
+                Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.26f),
+                        Color.White.copy(alpha = 0.08f),
+                        Color.White.copy(alpha = 0.20f)
+                    )
+                )
+            }
+            val lensBorder = remember {
+                BorderStroke(
+                    1.2.dp,
+                    Brush.linearGradient(
+                        listOf(
+                            Color(0x66A8E6FF),
+                            Color(0x73FFFFFF),
+                            Color(0x4D9B7BFF)
+                        )
+                    )
+                )
+            }
+            val labelBase = MaterialTheme.typography.labelSmall
+            val labelStyle = remember(labelBase) { labelBase.copy(fontSize = 8.5.sp) }
+
             // 1. The soft travelling capsule, behind the icons.
             Box(
                 Modifier
                     .offset(x = centreX - capsuleWidth / 2)
                     .width(capsuleWidth)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(21.dp))
+                    .clip(slotShape)
                     .background(capsuleFill)
-                    .border(0.8.dp, capsuleBorder, RoundedCornerShape(21.dp))
+                    .border(0.8.dp, capsuleBorder, slotShape)
             ) {
                 Box(
                     Modifier
                         .align(Alignment.TopCenter)
                         .fillMaxWidth(0.78f)
                         .height(1.dp)
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(
-                                    Color.Transparent,
-                                    Color.White.copy(alpha = if (isGlass) 0.40f else 0.95f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
+                        .background(capsuleHighlight)
                 )
             }
 
@@ -164,7 +197,7 @@ fun LiquidGlassDock(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(21.dp))
+                            .clip(slotShape)
                             .clickable(
                                 interactionSource = interaction,
                                 indication = null,
@@ -187,7 +220,7 @@ fun LiquidGlassDock(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             text = action.label,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.5.sp),
+                            style = labelStyle,
                             color = tint,
                             maxLines = 1,
                             overflow = TextOverflow.Clip
@@ -202,28 +235,8 @@ fun LiquidGlassDock(
                     .offset(x = centreX - lensSize / 2)
                     .size(lensSize)
                     .clip(CircleShape)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.26f),
-                                Color.White.copy(alpha = 0.08f),
-                                Color.White.copy(alpha = 0.20f)
-                            )
-                        )
-                    )
-                    .border(
-                        BorderStroke(
-                            1.2.dp,
-                            Brush.linearGradient(
-                                listOf(
-                                    Color(0x66A8E6FF),
-                                    Color(0x73FFFFFF),
-                                    Color(0x4D9B7BFF)
-                                )
-                            )
-                        ),
-                        CircleShape
-                    )
+                    .background(lensFill)
+                    .border(lensBorder, CircleShape)
             ) {
                 // Specular catchlight, upper left.
                 Box(

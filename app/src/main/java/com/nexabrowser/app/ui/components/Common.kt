@@ -45,28 +45,43 @@ import com.nexabrowser.app.util.UrlUtils
 import com.nexabrowser.app.util.FaviconPathCache
 import java.io.File
 
-/** Deterministic accent colour derived from a URL, used for letter avatars. */
-private fun accentFor(url: String): Color {
-    val host = UrlUtils.hostOf(url).ifBlank { url }
-    val palette = listOf(
-        Color(0xFF2F6BFF), Color(0xFF12B5A5), Color(0xFFE5484D),
-        Color(0xFFE0A106), Color(0xFF8B5CF6), Color(0xFF0EA5E9),
-        Color(0xFFEC4899), Color(0xFF22C55E)
-    )
-    if (host.isEmpty()) return palette[0]
-    return palette[(host.hashCode().let { if (it < 0) -it else it }) % palette.size]
+/**
+ * The avatar palette. It used to be rebuilt inside [accentFor], i.e. a new
+ * eight-element List and eight Color objects for every row drawn — on every
+ * recomposition of the history, bookmark, reading-list and shortcut lists.
+ */
+private val AVATAR_PALETTE = listOf(
+    Color(0xFF2F6BFF), Color(0xFF12B5A5), Color(0xFFE5484D),
+    Color(0xFFE0A106), Color(0xFF8B5CF6), Color(0xFF0EA5E9),
+    Color(0xFFEC4899), Color(0xFF22C55E)
+)
+
+/** Deterministic accent colour for a host, used for letter avatars. */
+private fun accentFor(host: String): Color {
+    if (host.isEmpty()) return AVATAR_PALETTE[0]
+    // Masked rather than negated: abs(Int.MIN_VALUE) is still negative, which
+    // would be a negative index the moment the palette has a size that does not
+    // divide 2^31 (it divides it today, which is luck, not correctness).
+    return AVATAR_PALETTE[(host.hashCode() and 0x7FFFFFFF) % AVATAR_PALETTE.size]
 }
 
 /** A round avatar showing the site's first letter, used when no icon exists. */
 @Composable
 fun LetterAvatar(url: String, size: Dp = 28.dp, modifier: Modifier = Modifier) {
-    val host = UrlUtils.hostOf(url).ifBlank { url }
-    val letter = host.removePrefix("www.").firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    // UrlUtils.hostOf() parses the URL with java.net.URI, and it used to run
+    // twice per row — once here and once inside accentFor() — on every
+    // recomposition of every list that shows an avatar. Both the parse and the
+    // colour are remembered per URL now; neither depends on anything else.
+    val host = remember(url) { UrlUtils.hostOf(url).ifBlank { url } }
+    val letter = remember(host) {
+        host.removePrefix("www.").firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    }
+    val accent = remember(host) { accentFor(host) }
     Box(
         modifier = modifier
             .size(size)
             .clip(RoundedCornerShape(size / 3.5f))
-            .background(accentFor(url)),
+            .background(accent),
         contentAlignment = Alignment.Center
     ) {
         Text(

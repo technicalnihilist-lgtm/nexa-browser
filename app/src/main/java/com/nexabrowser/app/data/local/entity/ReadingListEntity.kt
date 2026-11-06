@@ -1,6 +1,7 @@
 package com.nexabrowser.app.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -8,7 +9,7 @@ import androidx.room.PrimaryKey
  * archive and record its path in [archivePath]; [hasOfflineCopy] is only true
  * once that file actually exists on disk.
  */
-@Entity(tableName = "reading_list")
+@Entity(tableName = "reading_list", indices = [Index("url")])
 data class ReadingListEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
