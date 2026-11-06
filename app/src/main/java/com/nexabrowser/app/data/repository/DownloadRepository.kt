@@ -250,10 +250,9 @@ class DownloadRepository(
     }
 
     private fun extractFilename(disposition: String): String? {
-        val utf8 = Regex("filename\\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE).find(disposition)
+        val utf8 = UTF8_FILENAME.find(disposition)
         if (utf8 != null) return runCatching { Uri.decode(utf8.groupValues[1]) }.getOrNull()
-        val plain = Regex("filename=\"?([^\";]+)\"?", RegexOption.IGNORE_CASE).find(disposition)
-        return plain?.groupValues?.get(1)?.trim()
+        return PLAIN_FILENAME.find(disposition)?.groupValues?.get(1)?.trim()
     }
 
     /** Appends " (n)" until the name does not collide with an existing file. */
@@ -307,6 +306,11 @@ class DownloadRepository(
 
     companion object {
         private const val ACTIVE_INTERVAL_MS = 1_000L
+
+        // Compiled once. Both patterns used to be built inside the parse, i.e.
+        // two regex compilations for every download the user starts.
+        private val UTF8_FILENAME = Regex("filename\\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE)
+        private val PLAIN_FILENAME = Regex("filename=\"?([^\";]+)\"?", RegexOption.IGNORE_CASE)
     }
 }
 

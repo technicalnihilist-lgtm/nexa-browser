@@ -34,7 +34,7 @@ import com.nexabrowser.app.data.local.entity.SitePermissionEntity
         RecentTabEntity::class,
         SitePermissionEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class NexaDatabase : RoomDatabase() {
@@ -71,6 +71,27 @@ abstract class NexaDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Swaps the single-column `history.url` index for the composite
+         * `(url, visitedAt)` one.
+         *
+         * A plain CREATE/DROP INDEX pair: no table is rebuilt and no row is
+         * touched. The new index is built once, over rows that are already
+         * there, which is a few tens of milliseconds on a large history and
+         * invisible on a small one. Both statements run inside the migration
+         * transaction Room opens for us, so a failure leaves the old schema in
+         * place rather than a half-indexed table.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_history_url_visitedAt` " +
+                        "ON `history` (`url`, `visitedAt`)"
+                )
+                db.execSQL("DROP INDEX IF EXISTS `index_history_url`")
+            }
+        }
+
         fun get(context: Context): NexaDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -78,7 +99,7 @@ abstract class NexaDatabase : RoomDatabase() {
                     NexaDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

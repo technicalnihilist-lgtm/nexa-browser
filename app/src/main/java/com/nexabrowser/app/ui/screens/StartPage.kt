@@ -96,7 +96,13 @@ fun StartPage(
     modifier: Modifier = Modifier
 ) {
     val extras = LocalNexaColors.current
-    val bg = StartBackgrounds.brush(backgroundId, extras.isDark)
+    // The brush used to be rebuilt on every recomposition of this page — the
+    // clock tick, a new recent visit, a shortcut edit — and each one allocated a
+    // gradient object and its colour list for a value that only depends on the
+    // chosen wallpaper and the light/dark mode.
+    val bg = remember(backgroundId, extras.isDark) {
+        StartBackgrounds.brush(backgroundId, extras.isDark)
+    }
 
     var now by remember { mutableStateOf(Date()) }
     val lifecycleOwner = LocalLifecycleOwner.current
