@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextRange
@@ -74,11 +75,6 @@ fun AddressBar(
     val isSecure = UrlUtils.isHttps(rawUrl)
     val isHttp = rawUrl.startsWith("http://")
     val isPrivate = tab?.isPrivate == true
-
-    val focusManager = LocalFocusManager.current
-    val focusRequester = remember { FocusRequester() }
-    var focused by remember { mutableStateOf(false) }
-    var value by remember { mutableStateOf(TextFieldValue("")) }
 
     BarSurface(
         style = style,
@@ -125,57 +121,12 @@ fun AddressBar(
 
             Spacer(Modifier.width(6.dp))
 
-            BasicTextField(
-                value = value,
-                onValueChange = { value = it },
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = contentColor,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = if (focused) TextAlign.Start else TextAlign.Center
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Uri,
-                    imeAction = ImeAction.Go
-                ),
-                keyboardActions = KeyboardActions(
-                    onGo = {
-                        val text = value.text
-                        focusManager.clearFocus()
-                        if (text.isNotBlank()) onNavigate(text)
-                    }
-                ),
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { state ->
-                        focused = state.isFocused
-                        if (state.isFocused) {
-                            value = TextFieldValue(rawUrl, selection = TextRange(0, rawUrl.length))
-                        }
-                    },
-                decorationBox = { inner ->
-                    Box(Modifier.fillMaxWidth(), contentAlignment = if (focused) Alignment.CenterStart else Alignment.Center) {
-                        if (focused) {
-                            inner()
-                        } else {
-                            val shown = UrlUtils.displayUrl(rawUrl)
-                            Text(
-                                text = shown.ifBlank { "Search or enter website name" },
-                                style = TextStyle(
-                                    color = if (shown.isBlank()) secondaryColor else contentColor,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                }
+            AddressField(
+                rawUrl = rawUrl,
+                contentColor = contentColor,
+                secondaryColor = secondaryColor,
+                onNavigate = onNavigate,
+                modifier = Modifier.weight(1f)
             )
 
             if (isLoading) {
@@ -199,4 +150,81 @@ fun AddressBar(
             }
         }
     }
+}
+
+/**
+ * The editable address itself.
+ *
+ * It is a separate composable on purpose. The typed value lives here rather than
+ * in [AddressBar], so a keystroke recomposes this text field and nothing else.
+ * Hoisted one level up — which is where it used to live — every character typed
+ * invalidated the whole bar: the glass surface, the "aA" label, the connection
+ * icon and the reload/stop button were all recomposed per keystroke, on the one
+ * interaction where the frame budget matters most. Nothing that is drawn
+ * changes; only the scope of the recomposition does.
+ */
+@Composable
+private fun AddressField(
+    rawUrl: String,
+    contentColor: Color,
+    secondaryColor: Color,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val focusManager = LocalFocusManager.current
+    val focusRequester = remember { FocusRequester() }
+    var focused by remember { mutableStateOf(false) }
+    var value by remember { mutableStateOf(TextFieldValue("")) }
+
+    BasicTextField(
+        value = value,
+        onValueChange = { value = it },
+        singleLine = true,
+        textStyle = TextStyle(
+            color = contentColor,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = if (focused) TextAlign.Start else TextAlign.Center
+        ),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Uri,
+            imeAction = ImeAction.Go
+        ),
+        keyboardActions = KeyboardActions(
+            onGo = {
+                val text = value.text
+                focusManager.clearFocus()
+                if (text.isNotBlank()) onNavigate(text)
+            }
+        ),
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .onFocusChanged { state ->
+                focused = state.isFocused
+                if (state.isFocused) {
+                    value = TextFieldValue(rawUrl, selection = TextRange(0, rawUrl.length))
+                }
+            },
+        decorationBox = { inner ->
+            Box(Modifier.fillMaxWidth(), contentAlignment = if (focused) Alignment.CenterStart else Alignment.Center) {
+                if (focused) {
+                    inner()
+                } else {
+                    val shown = UrlUtils.displayUrl(rawUrl)
+                    Text(
+                        text = shown.ifBlank { "Search or enter website name" },
+                        style = TextStyle(
+                            color = if (shown.isBlank()) secondaryColor else contentColor,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    )
 }

@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 /** A tab that was closed and can be restored. */
@@ -532,24 +533,48 @@ class BrowserTabManager(
         updateTab(tabId) { it.copy(title = title) }
     }
 
-    override fun onFavicon(tabId: String, favicon: Bitmap?) {
-        if (favicon == null) return
-        updateTab(tabId) { it.copy(favicon = downsampleFavicon(favicon)) }
-    }
-
     /**
      * A page can hand back a 512px apple-touch-icon, which costs ~1 MB of heap
      * for as long as the tab is open — multiplied by every open tab. The icon is
      * drawn at 24–28dp, so it is capped at [FaviconSizing.MAX_ICON_EDGE] on the
-     * way in. Icons that are already small (the common case) are returned
-     * untouched, so this costs nothing for a normal 16–48px favicon. The source
-     * bitmap is not recycled: WebView may still be using it.
+     * way in. The source bitmap is not recycled: WebView may still be using it.
+     *
+     * The rescale used to run inline. This callback is delivered on the main
+     * thread at the moment the page has just finished painting, and rescaling a
+     * 512px bitmap is several milliseconds of pixel work — a dropped frame on
+     * every page whose icon is larger than the cap. Only the (free) size check
+     * stays on the main thread now; the pixel work moves to the default
+     * dispatcher and the result is published when it is ready. A normal 16–48px
+     * favicon still takes the fast path below and never leaves the main thread.
      */
-    private fun downsampleFavicon(bitmap: Bitmap): Bitmap {
-        val (w, h) = FaviconSizing.targetSize(bitmap.width, bitmap.height)
-        if (w == bitmap.width && h == bitmap.height) return bitmap
-        return runCatching { Bitmap.createScaledBitmap(bitmap, w, h, true) }.getOrDefault(bitmap)
+    override fun onFavicon(tabId: String, favicon: Bitmap?) {
+        if (favicon == null) return
+        if (!FaviconSizing.needsScale(favicon.width, favicon.height)) {
+            // A newer icon supersedes any scale still in flight for this tab.
+            faviconToken.remove(tabId)
+            updateTab(tabId) { it.copy(favicon = favicon) }
+            return
+        }
+        val (w, h) = FaviconSizing.targetSize(favicon.width, favicon.height)
+        val token = Any()
+        faviconToken[tabId] = token
+        scope.launch {
+            val scaled = withContext(Dispatchers.Default) {
+                runCatching { Bitmap.createScaledBitmap(favicon, w, h, true) }.getOrDefault(favicon)
+            }
+            // A scale that finishes after the tab has moved on — a newer icon,
+            // a rebuilt WebView, a closed tab — must not publish over it.
+            if (faviconToken[tabId] !== token) return@launch
+            if (byId[tabId] == null) return@launch
+            updateTab(tabId) { it.copy(favicon = scaled) }
+        }
     }
+
+    /**
+     * Per-tab identity of the icon currently being prepared off the main thread,
+     * so a late result cannot replace a newer one.
+     */
+    private val faviconToken = HashMap<String, Any?>()
 
     override fun onUrlChanged(tabId: String, url: String) {
         if (url == "about:blank") return
@@ -621,6 +646,7 @@ class BrowserTabManager(
         lastProgress.remove(tab.id)
         appliedCss.remove(tab.id)
         appliedSettings.remove(tab.id)
+        faviconToken.remove(tab.id)
 
         val settings = settingsProvider()
         val webView = BrowserWebViewFactory.create(
@@ -670,6 +696,7 @@ class BrowserTabManager(
         appliedSettings.remove(tab.id)
         desktopOverrides.remove(tab.id)
         rendererLosses.remove(tab.id)
+        faviconToken.remove(tab.id)
         tab.destroy()
     }
 
@@ -776,6 +803,7 @@ class BrowserTabManager(
         appliedSettings.clear()
         desktopOverrides.clear()
         rendererLosses.clear()
+        faviconToken.clear()
         scope.cancel()
     }
 

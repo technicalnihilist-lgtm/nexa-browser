@@ -52,4 +52,32 @@ class FaviconSizingTest {
     fun `custom cap is honoured`() {
         assertThat(FaviconSizing.targetSize(200, 100, max = 50)).isEqualTo(50 to 25)
     }
+
+    @Test
+    fun `icon already inside the cap needs no rescale`() {
+        assertThat(FaviconSizing.needsScale(16, 16)).isFalse()
+        assertThat(FaviconSizing.needsScale(48, 48)).isFalse()
+        assertThat(FaviconSizing.needsScale(96, 96)).isFalse()
+        assertThat(FaviconSizing.needsScale(16, 96)).isFalse()
+    }
+
+    @Test
+    fun `icon larger than the cap needs a rescale`() {
+        assertThat(FaviconSizing.needsScale(512, 512)).isTrue()
+        assertThat(FaviconSizing.needsScale(97, 97)).isTrue()
+        assertThat(FaviconSizing.needsScale(64, 256)).isTrue()
+    }
+
+    @Test
+    fun `degenerate icon sizes need a rescale`() {
+        // targetSize clamps a zero or negative edge to 1px, which is a change.
+        assertThat(FaviconSizing.needsScale(0, 0)).isTrue()
+        assertThat(FaviconSizing.needsScale(-4, 32)).isTrue()
+    }
+
+    @Test
+    fun `needsScale follows a custom cap`() {
+        assertThat(FaviconSizing.needsScale(60, 60, max = 96)).isFalse()
+        assertThat(FaviconSizing.needsScale(60, 60, max = 50)).isTrue()
+    }
 }

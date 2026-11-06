@@ -21,6 +21,18 @@ object FaviconSizing {
     const val MAX_ICON_EDGE = 96
 
     /**
+     * True when an icon of [width] x [height] has to be rescaled before it is
+     * used, i.e. when [targetSize] would change either edge. Callers use this to
+     * keep the (free) decision on the caller's thread and do the pixel work
+     * somewhere else — which is the whole point: the common 16–48px favicon
+     * needs no work at all, and only the rare large icon is worth the hop.
+     */
+    fun needsScale(width: Int, height: Int, max: Int = MAX_ICON_EDGE): Boolean {
+        val (w, h) = targetSize(width, height, max)
+        return w != width || h != height
+    }
+
+    /**
      * Target size for an icon of [width] x [height]: the longest edge is capped
      * at [max] and the other edge keeps the aspect ratio, never below 1px.
      */
