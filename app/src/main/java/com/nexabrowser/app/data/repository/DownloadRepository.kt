@@ -245,7 +245,7 @@ class DownloadRepository(
         val raw = fromDisposition
             ?: Uri.parse(request.url).lastPathSegment?.takeIf { it.isNotBlank() && !it.contains("/") }
             ?: "download"
-        val sanitised = raw.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim().ifBlank { "download" }
+        val sanitised = raw.replace(UNSAFE_FILENAME_CHARS, "_").trim().ifBlank { "download" }
         return makeUnique(sanitised)
     }
 
@@ -311,6 +311,11 @@ class DownloadRepository(
         // two regex compilations for every download the user starts.
         private val UTF8_FILENAME = Regex("filename\\*=UTF-8''([^;]+)", RegexOption.IGNORE_CASE)
         private val PLAIN_FILENAME = Regex("filename=\"?([^\";]+)\"?", RegexOption.IGNORE_CASE)
+
+        // Compiled once, like the two patterns above: the sanitiser used to
+        // compile this regex on every download to strip the characters a file
+        // name cannot contain.
+        private val UNSAFE_FILENAME_CHARS = Regex("[\\\\/:*?\"<>|]")
     }
 }
 

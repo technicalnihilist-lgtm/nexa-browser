@@ -106,6 +106,57 @@ class UrlUtilsTest {
         assertThat(UrlUtils.hostOf("not a url")).isEqualTo("")
     }
 
+    // The host is read straight out of the authority now, so the cases below are
+    // the ones where that scanner could disagree with the URI parser it replaced.
+    // Each of them feeds the favicon store (once per completed page load) and the
+    // site-permission key (once per prompt), so a disagreement would be visible.
+
+    @Test
+    fun `host ignores userinfo, port, query and fragment`() {
+        assertThat(UrlUtils.hostOf("https://user:pw@example.com:8443/a?b#c"))
+            .isEqualTo("example.com")
+        assertThat(UrlUtils.hostOf("http://example.com?q=1")).isEqualTo("example.com")
+        assertThat(UrlUtils.hostOf("http://example.com#top")).isEqualTo("example.com")
+        assertThat(UrlUtils.hostOf("http://example.com")).isEqualTo("example.com")
+    }
+
+    @Test
+    fun `host keeps case and ipv6 brackets, as the uri parser did`() {
+        assertThat(UrlUtils.hostOf("https://Example.COM/Path")).isEqualTo("Example.COM")
+        assertThat(UrlUtils.hostOf("http://[::1]:8080/x")).isEqualTo("[::1]")
+        assertThat(UrlUtils.hostOf("http://[::1]/x")).isEqualTo("[::1]")
+        assertThat(UrlUtils.hostOf("http://127.0.0.1:9000/x")).isEqualTo("127.0.0.1")
+    }
+
+    @Test
+    fun `host survives a path the uri parser rejects`() {
+        // java.net.URI refuses the whole string when the path holds a raw space
+        // or a non-ASCII character, and the old hostOf turned that into "".
+        assertThat(UrlUtils.hostOf("https://example.com/a b/c")).isEqualTo("example.com")
+        assertThat(UrlUtils.hostOf("https://example.com/\u0939\u093f\u0928\u094d\u0926\u0940"))
+            .isEqualTo("example.com")
+        assertThat(UrlUtils.originOf("https://example.com/\u0ba4\u0bae\u0bbf\u0bb4\u0bcd"))
+            .isEqualTo("https://example.com")
+    }
+
+    @Test
+    fun `host is empty where there is no authority`() {
+        assertThat(UrlUtils.hostOf("about:blank")).isEqualTo("")
+        assertThat(UrlUtils.hostOf("mailto:a@b.com")).isEqualTo("")
+        assertThat(UrlUtils.hostOf("file:///data/x.html")).isEqualTo("")
+        assertThat(UrlUtils.hostOf("")).isEqualTo("")
+        assertThat(UrlUtils.hostOf("http://")).isEqualTo("")
+        assertThat(UrlUtils.originOf("about:blank")).isNull()
+    }
+
+    @Test
+    fun `origin keeps the port only when there is one`() {
+        assertThat(UrlUtils.originOf("http://example.com:80/x")).isEqualTo("http://example.com:80")
+        assertThat(UrlUtils.originOf("http://example.com:8080/x")).isEqualTo("http://example.com:8080")
+        assertThat(UrlUtils.originOf("http://example.com:/x")).isEqualTo("http://example.com")
+        assertThat(UrlUtils.originOf("https://example.com")).isEqualTo("https://example.com")
+    }
+
     @Test
     fun `loadable url rejects nonsense and accepts web schemes`() {
         assertThat(UrlUtils.isLoadableUrl("https://example.com")).isTrue()

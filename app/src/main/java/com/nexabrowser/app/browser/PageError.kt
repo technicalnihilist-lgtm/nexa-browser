@@ -24,8 +24,24 @@ data class PageError(
         const val TOO_MANY_REQUESTS = -15
         const val UNSAFE_RESOURCE = -16
 
-        fun isNetwork(code: Int): Boolean = code in setOf(
-            HOST_LOOKUP, CONNECT, IO, TIMEOUT, PROXY_AUTHENTICATION, FAILED_SSL_HANDSHAKE, TOO_MANY_REQUESTS
-        )
+        /**
+         * True for the error codes that mean "the network, not the page".
+         *
+         * This used to be `code in setOf(...)`, which allocated a new set — its
+         * backing array, its wrapper and its entries — on every call, and every
+         * call happens while a failed page is being reported and its overlay
+         * drawn. A `when` over the same codes answers it without allocating.
+         */
+        fun isNetwork(code: Int): Boolean = when (code) {
+            HOST_LOOKUP,
+            CONNECT,
+            IO,
+            TIMEOUT,
+            PROXY_AUTHENTICATION,
+            FAILED_SSL_HANDSHAKE,
+            TOO_MANY_REQUESTS -> true
+
+            else -> false
+        }
     }
 }

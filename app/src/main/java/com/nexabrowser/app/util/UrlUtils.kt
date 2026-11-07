@@ -40,17 +40,143 @@ object UrlUtils {
     fun schemeOf(url: String): String =
         if (SCHEME_RE.containsMatchIn(url)) url.substringBefore(':').lowercase(Locale.ROOT) else ""
 
-    /** Origin (scheme://host[:port]) used as the key for site permissions. */
-    fun originOf(url: String): String? = try {
-        val u = URI(url)
-        val host = u.host ?: return null
-        val port = if (u.port > 0) ":${u.port}" else ""
-        "${u.scheme?.lowercase(Locale.ROOT) ?: "https"}://$host$port"
-    } catch (_: Exception) {
-        null
+    /**
+     * Origin (scheme://host[:port]) used as the key for site permissions.
+     *
+     * Answered by [authorityOf], which is the same answer `java.net.URI` gives
+     * for every URL this app meets, without constructing a URI object.
+     */
+    fun originOf(url: String): String? {
+        val (host, port) = authorityOf(url) ?: return null
+        val scheme = schemeOf(url).ifEmpty { "https" }
+        return if (port > 0) "$scheme://$host:$port" else "$scheme://$host"
     }
 
-    fun hostOf(url: String): String = try { URI(url).host ?: "" } catch (_: Exception) { "" }
+    /**
+     * Host of [url], or "" when it has none.
+     *
+     * This used to be `URI(url).host`, and that had two costs:
+     *
+     *  * **Allocations.** A `java.net.URI` parse builds the URI, its internal
+     *    string fields and (for the common hierarchical case) the parsed
+     *    authority. This runs once per completed page load — to name the stored
+     *    favicon — once per permission prompt, and once per row of the start
+     *    page, history, bookmark and reading-list lists through
+     *    `LetterAvatar`. The answer only ever depends on the characters up to
+     *    the end of the authority, so [authorityOf] scans exactly those and
+     *    returns one small pair plus the host substring it needs — against a
+     *    URI object, its parsed fields and, for anything it dislikes, a thrown
+     *    and caught `URISyntaxException`.
+     *  * **Silent failures.** `URI` rejects a string with a space or a non-ASCII
+     *    character anywhere in it, path included, and the old code turned that
+     *    rejection into "". A page whose URL carries a Devanagari, Tamil or
+     *    Chinese path — or any URL the browser got away with loading while
+     *    containing a raw space — therefore had no host, so no favicon was
+     *    stored for it and a site permission was keyed on the whole URL instead
+     *    of its origin. The fast path reads the authority and stops before the
+     *    path, so those URLs now resolve normally.
+     *
+     * Anything the fast path is not certain about (a non-ASCII host, a port
+     * outside 1..65535, an authority with characters `URI` would reject) falls
+     * back to `URI`, so the behaviour for exotic input is exactly what it was.
+     */
+    fun hostOf(url: String): String = authorityOf(url)?.first.orEmpty()
+
+    /**
+     * The authority of [url] as (host, port), or null when it has none.
+     *
+     * Host keeps its original case and an IPv6 literal keeps its brackets, both
+     * of which is what `java.net.URI.host` returns, so callers cannot tell the
+     * two paths apart. Port is 0 when the URL carries none.
+     */
+    private fun authorityOf(url: String): Pair<String, Int>? {
+        val fast = fastAuthorityOf(url)
+        if (fast != null) return fast
+        return try {
+            val u = URI(url)
+            val host = u.host ?: return null
+            host to (if (u.port > 0) u.port else 0)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Reads `scheme://host[:port]` straight out of [url].
+     *
+     * Returns null — never a guess — for anything that is not a plain ASCII
+     * hierarchical URL, so [authorityOf] can hand those to `URI`.
+     */
+    private fun fastAuthorityOf(url: String): Pair<String, Int>? {
+        val schemeEnd = url.indexOf(':')
+        if (schemeEnd <= 0) return null
+        for (i in 0 until schemeEnd) {
+            val c = url[i]
+            val ok = c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '+' || c == '-' || c == '.'
+            if (!ok) return null
+        }
+        // Only the hierarchical form has an authority; mailto:, data: and
+        // about: do not, and URI reports no host for them either.
+        var start = schemeEnd + 1
+        if (start + 1 >= url.length || url[start] != '/' || url[start + 1] != '/') return null
+        start += 2
+
+        var end = url.length
+        for (i in start until url.length) {
+            val c = url[i]
+            if (c == '/' || c == '?' || c == '#') {
+                end = i
+                break
+            }
+        }
+        // userinfo@ is dropped: the host starts after the last '@'.
+        var hostStart = start
+        for (i in start until end) if (url[i] == '@') hostStart = i + 1
+        if (hostStart >= end) return null
+
+        // IPv6 literal: keep the brackets, as URI does.
+        if (url[hostStart] == '[') {
+            val close = url.indexOf(']', hostStart)
+            if (close < 0 || close >= end) return null
+            val host = url.substring(hostStart, close + 1)
+            val after = close + 1
+            if (after == end) return host to 0
+            if (url[after] != ':') return null
+            val port = readPort(url, after + 1, end) ?: return null
+            return host to port
+        }
+
+        var hostEnd = end
+        var port = 0
+        val colon = url.lastIndexOf(':', end - 1)
+        if (colon > hostStart) {
+            port = readPort(url, colon + 1, end) ?: return null
+            hostEnd = colon
+        }
+        if (hostEnd <= hostStart) return null
+        // A host is ASCII letters, digits, '-' and '.'; anything else (an IDN
+        // host, a stray space, a control character) goes to URI, which either
+        // knows better or rejects it exactly as before.
+        for (i in hostStart until hostEnd) {
+            val c = url[i]
+            val ok = c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '-' || c == '.' || c == '_'
+            if (!ok) return null
+        }
+        return url.substring(hostStart, hostEnd) to port
+    }
+
+    /** Digits between [from] and [to] as a port, or null when they are not one. */
+    private fun readPort(url: String, from: Int, to: Int): Int? {
+        if (from >= to) return null
+        var value = 0
+        for (i in from until to) {
+            val c = url[i]
+            if (c !in '0'..'9') return null
+            value = value * 10 + (c - '0')
+            if (value > 65535) return null
+        }
+        return value
+    }
 
     /**
      * Decides whether the address-bar text is a URL or a search query and returns
