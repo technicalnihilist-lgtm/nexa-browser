@@ -43,11 +43,8 @@ import com.nexabrowser.app.ui.HistoryRange
 import com.nexabrowser.app.ui.components.CachedFavicon
 import com.nexabrowser.app.ui.components.EmptyState
 import com.nexabrowser.app.ui.theme.NexaIcons
+import com.nexabrowser.app.util.DateLabels
 import com.nexabrowser.app.util.UrlUtils
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 
 /**
  * Browsing history, grouped by day and searchable.
@@ -73,7 +70,12 @@ fun HistoryScreen(
         }
     }
 
-    val grouped = remember(filtered) { filtered.groupBy { dayLabel(it.visitedAt) } }
+    // One "now" for the whole grouping pass, so a list drawn across midnight
+    // cannot put two entries of the same day under different headings.
+    val grouped = remember(filtered) {
+        val now = System.currentTimeMillis()
+        filtered.groupBy { DateLabels.dayLabel(it.visitedAt, now) }
+    }
 
     Column(modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -240,26 +242,10 @@ private fun SwipeToDeleteRow(
             }
             Spacer(Modifier.width(8.dp))
             Text(
-                timeLabel(entry.visitedAt),
+                DateLabels.timeLabel(entry.visitedAt),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
 }
-
-private fun dayLabel(timestamp: Long): String {
-    val now = Calendar.getInstance()
-    val then = Calendar.getInstance().apply { timeInMillis = timestamp }
-    val sameYear = now.get(Calendar.YEAR) == then.get(Calendar.YEAR)
-    val dayDiff = now.get(Calendar.DAY_OF_YEAR) - then.get(Calendar.DAY_OF_YEAR)
-    return when {
-        sameYear && dayDiff == 0 -> "Today"
-        sameYear && dayDiff == 1 -> "Yesterday"
-        sameYear -> SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date(timestamp))
-        else -> SimpleDateFormat("d MMMM yyyy", Locale.getDefault()).format(Date(timestamp))
-    }
-}
-
-private fun timeLabel(timestamp: Long): String =
-    SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestamp))

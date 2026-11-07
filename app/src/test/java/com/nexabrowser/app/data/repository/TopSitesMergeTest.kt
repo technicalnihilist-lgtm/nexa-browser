@@ -3,6 +3,7 @@ package com.nexabrowser.app.data.repository
 import com.google.common.truth.Truth.assertThat
 import com.nexabrowser.app.data.local.dao.TopSiteAggregateRow
 import com.nexabrowser.app.data.local.dao.TopSitesMerge
+import com.nexabrowser.app.data.local.dao.UrlTitleRow
 import org.junit.Test
 
 /**
@@ -48,5 +49,46 @@ class TopSitesMergeTest {
     @Test
     fun `an empty aggregate stays empty`() {
         assertThat(TopSitesMerge.merge(emptyList(), emptyMap())).isEmpty()
+    }
+
+    @Test
+    fun `one batched lookup gives each url its own title`() {
+        val titles = TopSitesMerge.titlesOf(
+            listOf(
+                UrlTitleRow("https://a.example", "A site"),
+                UrlTitleRow("https://b.example", "B site")
+            )
+        )
+
+        assertThat(titles).hasSize(2)
+        assertThat(titles["https://a.example"]).isEqualTo("A site")
+        assertThat(titles["https://b.example"]).isEqualTo("B site")
+    }
+
+    @Test
+    fun `a url with two visits at the same timestamp keeps the first row`() {
+        // The batched query joins on the newest visitedAt, so an exact tie in the
+        // table returns both rows. The map must still hold exactly one title per
+        // url, and the merged list must keep its ranking.
+        val titles = TopSitesMerge.titlesOf(
+            listOf(
+                UrlTitleRow("https://a.example", "First"),
+                UrlTitleRow("https://a.example", "Second"),
+                UrlTitleRow("https://b.example", "B site")
+            )
+        )
+
+        assertThat(titles).hasSize(2)
+        assertThat(titles["https://a.example"]).isEqualTo("First")
+
+        val merged = TopSitesMerge.merge(listOf(a, b), titles)
+        assertThat(merged.map { it.title }).containsExactly("First", "B site").inOrder()
+    }
+
+    @Test
+    fun `a url missing from the lookup falls back to its url on screen`() {
+        val merged = TopSitesMerge.merge(listOf(a, b), TopSitesMerge.titlesOf(emptyList()))
+
+        assertThat(merged.map { it.title }).containsExactly("", "").inOrder()
     }
 }

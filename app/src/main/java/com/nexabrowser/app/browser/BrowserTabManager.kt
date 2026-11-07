@@ -367,9 +367,7 @@ class BrowserTabManager(
             // effect immediately as before.
             if (WebViewSettingsDiff.affectsWebView(previous, settings)) {
                 BrowserWebViewFactory.applySettings(tab.webView, settings, userAgentFor(tab, settings))
-                if (settings.doNotTrackEnabled && tab.info.url.isNotBlank()) {
-                    BrowserWebViewFactory.injectDoNotTrack(tab.webView, true)
-                }
+                if (tab.info.url.isNotBlank()) applyDoNotTrack(tab)
             }
             // Re-apply page extensions so toggling one takes effect immediately.
             // Skipped when the styles are the ones already on the page.
@@ -426,6 +424,31 @@ class BrowserTabManager(
     /** tabId -> the page CSS currently installed in that tab's document. */
     private val appliedCss = HashMap<String, String>()
 
+    /**
+     * Tabs whose current document already carries the Do Not Track shim.
+     *
+     * The shim was only ever injected from [applySettings], i.e. when the
+     * preference itself changed — never when a page loaded. Since every
+     * navigation replaces the document, the shim was thrown away by the very next
+     * page and the setting (on by default) did nothing at all: a site script that
+     * reads `navigator.doNotTrack` always saw `undefined`. It is now delivered
+     * once per document, when the document exists, and the memo stops a settings
+     * re-emission or a repeat page-finished callback from sending it twice.
+     */
+    private val dntInjected = HashSet<String>()
+
+    /** Injects the Do Not Track shim into the tab's current document, once. */
+    private fun applyDoNotTrack(tab: BrowserTab) {
+        if (!settingsProvider().doNotTrackEnabled) {
+            // Turning the preference off must let a later re-enable inject again.
+            dntInjected.remove(tab.id)
+            return
+        }
+        if (!dntInjected.add(tab.id)) return
+        runCatching { BrowserWebViewFactory.injectDoNotTrack(tab.webView, true) }
+            .onFailure { dntInjected.remove(tab.id) }
+    }
+
     /** Toggles the desktop user agent on one tab and reloads it. */
     fun setDesktopSite(tabId: String, enabled: Boolean) {
         val tab = tabById(tabId) ?: return
@@ -462,6 +485,7 @@ class BrowserTabManager(
         if (!blank) {
             lastProgress[tabId] = START_PROGRESS
             appliedCss.remove(tabId)
+            dntInjected.remove(tabId)
         }
         updateTab(tabId) {
             it.copy(
@@ -494,6 +518,7 @@ class BrowserTabManager(
         // rather than in the WebViewClient keeps the per-tab memo of what has
         // already been injected in one place.
         applyPageCss(tab, PageInjections.cssFor(settingsProvider()))
+        applyDoNotTrack(tab)
         _pageFinished.tryEmit(tab.info)
     }
 
@@ -647,6 +672,7 @@ class BrowserTabManager(
         appliedCss.remove(tab.id)
         appliedSettings.remove(tab.id)
         faviconToken.remove(tab.id)
+        dntInjected.remove(tab.id)
 
         val settings = settingsProvider()
         val webView = BrowserWebViewFactory.create(
@@ -697,6 +723,7 @@ class BrowserTabManager(
         desktopOverrides.remove(tab.id)
         rendererLosses.remove(tab.id)
         faviconToken.remove(tab.id)
+        dntInjected.remove(tab.id)
         tab.destroy()
     }
 
@@ -804,6 +831,7 @@ class BrowserTabManager(
         desktopOverrides.clear()
         rendererLosses.clear()
         faviconToken.clear()
+        dntInjected.clear()
         scope.cancel()
     }
 

@@ -37,7 +37,7 @@ interface HistoryDao {
      * so it made SQLite visit every row of the table (74 ms on a 20k-row history,
      * re-run on every history write while the start page was open). Counting over
      * the covering index `(url, visitedAt)` instead costs ~24 ms, and the dozen
-     * titles the start page shows are read with [titleForUrl] afterwards.
+     * titles the start page shows are read with [titlesForUrls] afterwards.
      */
     @Query(
         "SELECT url AS url, COUNT(*) AS visits, MAX(visitedAt) AS lastVisit " +
@@ -46,13 +46,25 @@ interface HistoryDao {
     fun topSites(limit: Int): Flow<List<TopSiteAggregateRow>>
 
     /**
-     * Title of the newest visit to [url] — the one the user last saw.
+     * Titles of the newest visit to each of [urls] — one query for the whole list.
      *
-     * Answered straight from the `(url, visitedAt)` index, without the temporary
-     * sort the old `WHERE url = ? ORDER BY visitedAt DESC` plan needed.
+     * The start page used to read these one at a time, so publishing its
+     * "frequently visited" rows cost thirteen statements per history write: the
+     * aggregate plus one indexed title lookup per row, each with its own trip
+     * through the query executor and its own cursor. The inner select reads only
+     * the covering `(url, visitedAt)` index (one range scan per url, `MAX` at the
+     * end of it); the outer join then fetches the title of exactly those rows.
+     *
+     * Two visits to the same url with an identical timestamp produce two rows, so
+     * callers take the first row per url.
      */
-    @Query("SELECT title FROM history WHERE url = :url ORDER BY visitedAt DESC LIMIT 1")
-    suspend fun titleForUrl(url: String): String?
+    @Query(
+        "SELECT h.url AS url, h.title AS title FROM history h " +
+            "JOIN (SELECT url AS url, MAX(visitedAt) AS lastVisit FROM history " +
+            "WHERE url IN (:urls) GROUP BY url) newest " +
+            "ON h.url = newest.url AND h.visitedAt = newest.lastVisit"
+    )
+    suspend fun titlesForUrls(urls: List<String>): List<UrlTitleRow>
 
     @Insert
     suspend fun insert(entry: HistoryEntity): Long

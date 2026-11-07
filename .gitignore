@@ -22,3 +22,6 @@ captures/
 # OS
 .DS_Store
 Thumbs.db
+
+# Kotlin build state
+.kotlin/

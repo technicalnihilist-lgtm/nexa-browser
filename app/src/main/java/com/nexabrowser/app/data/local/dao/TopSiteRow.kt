@@ -17,6 +17,12 @@ data class TopSiteAggregateRow(
     val lastVisit: Long
 )
 
+/** One row of the batched title lookup: a url and the title of its newest visit. */
+data class UrlTitleRow(
+    val url: String,
+    val title: String
+)
+
 /**
  * Pairs an aggregate row with the title of that URL's newest visit.
  *
@@ -25,6 +31,22 @@ data class TopSiteAggregateRow(
  * empty title, which the start page already renders as the URL itself.
  */
 object TopSitesMerge {
+
+    /**
+     * url -> title from the rows of one batched lookup.
+     *
+     * The query can return more than one row for a url when two visits share a
+     * timestamp; the first row wins, so the map has exactly one title per url and
+     * never depends on row order beyond that tie.
+     */
+    fun titlesOf(rows: List<UrlTitleRow>): Map<String, String> {
+        if (rows.isEmpty()) return emptyMap()
+        val titles = HashMap<String, String>(rows.size * 2)
+        for (row in rows) {
+            if (!titles.containsKey(row.url)) titles[row.url] = row.title
+        }
+        return titles
+    }
 
     fun merge(
         aggregates: List<TopSiteAggregateRow>,

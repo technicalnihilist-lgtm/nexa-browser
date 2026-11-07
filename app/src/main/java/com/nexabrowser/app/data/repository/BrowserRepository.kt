@@ -102,18 +102,25 @@ class BrowserRepository(private val db: NexaDatabase) {
      * Frequently visited pages, computed from real history rows.
      *
      * The aggregate is counted over the covering `(url, visitedAt)` index and
-     * carries no title; the title of each of the (at most [limit]) rows is then
-     * read with one indexed lookup. That replaced a `MAX(title)` in the GROUP BY,
+     * carries no title; the titles of the (at most [limit]) rows are then read
+     * with one batched lookup. That replaced a `MAX(title)` in the GROUP BY,
      * which forced a full table scan — ~74 ms against ~24 ms for a 20k-visit
      * history, on a query Room re-runs on every history write.
+     *
+     * The batched lookup replaces one `titleForUrl` per row, which meant thirteen
+     * statements and thirteen query-executor round trips for the twelve rows the
+     * start page shows, on every history write.
      *
      * The title shown is the newest one the user saw for that URL, rather than the
      * lexicographically largest one `MAX(title)` happened to pick.
      */
     fun topSites(limit: Int = 12): Flow<List<TopSite>> =
         historyDao.topSites(limit).map { rows ->
-            val titles = HashMap<String, String?>(rows.size)
-            rows.forEach { titles[it.url] = historyDao.titleForUrl(it.url) }
+            val titles = if (rows.isEmpty()) {
+                emptyMap()
+            } else {
+                TopSitesMerge.titlesOf(historyDao.titlesForUrls(rows.map { it.url }))
+            }
             TopSitesMerge.merge(rows, titles).map { TopSite(it.url, it.title, it.visits, it.lastVisit) }
         }
 
