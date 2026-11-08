@@ -21,6 +21,7 @@ import com.nexabrowser.app.browser.DelegatingActivityHost
 import com.nexabrowser.app.browser.JsDialogType
 import com.nexabrowser.app.browser.LinkCleaner
 import com.nexabrowser.app.browser.PrivateBrowsingManager
+import com.nexabrowser.app.browser.TabRestorePlan
 import com.nexabrowser.app.data.local.NexaDatabase
 import com.nexabrowser.app.data.prefs.BrowserSettings
 import com.nexabrowser.app.data.prefs.DataStoreManager
@@ -234,13 +235,21 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
             } else {
                 // One batch: the saved tabs are created together and the tab
                 // list, renderer priorities and private-tab count are settled
-                // once, instead of once per restored tab.
-                val urls = saved.sortedBy { it.third }
-                    .map { it.first }
-                    .filter { UrlUtils.isLoadableUrl(it) }
-                tabManager.restoreTabs(urls)
-                if (tabManager.tabInfos.value.isEmpty()) tabManager.newTab(url = "", isPrivate = false)
-                if (!launchUrl.isNullOrBlank()) tabManager.newTab(url = launchUrl, isPrivate = false)
+                // once, instead of once per restored tab. Only the tab that is
+                // put on screen loads now; the rest keep their saved title and
+                // fetch their page when the user first selects them, so a long
+                // session no longer starts a page load per tab behind the one
+                // the user is looking at.
+                val plan = TabRestorePlan.plan(saved, UrlUtils::isLoadableUrl)
+                if (plan.entries.isEmpty()) {
+                    tabManager.newTab(url = launchUrl ?: "", isPrivate = false)
+                } else {
+                    tabManager.restoreTabs(plan.entries)
+                    if (tabManager.tabInfos.value.isEmpty()) {
+                        tabManager.newTab(url = "", isPrivate = false)
+                    }
+                    if (!launchUrl.isNullOrBlank()) tabManager.newTab(url = launchUrl, isPrivate = false)
+                }
             }
         }
     }

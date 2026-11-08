@@ -118,7 +118,12 @@ class BrowserTabManager(
         return tab
     }
 
-    private fun createTabInternal(url: String?, isPrivate: Boolean): BrowserTab {
+    private fun createTabInternal(
+        url: String?,
+        isPrivate: Boolean,
+        deferLoad: Boolean = false,
+        title: String = ""
+    ): BrowserTab {
         val id = "tab-${++idCounter}-${System.currentTimeMillis()}"
         val webView = BrowserWebViewFactory.create(
             context = webViewContext(),
@@ -130,6 +135,16 @@ class BrowserTabManager(
         )
         val tab = BrowserTab(id, isPrivate, webView)
         rendererVisible[id] = true
+        if (title.isNotEmpty()) tab.restore(tab.info.copy(title = title))
+        if (deferLoad && !url.isNullOrBlank()) {
+            // A restored tab the user is not looking at yet: the WebView exists
+            // but fetches nothing. The url is carried in the tab's metadata so
+            // the tab strip, the session write and a later selection all see
+            // the page the user left there.
+            pendingLoads[id] = url
+            tab.restore(tab.info.copy(url = url, isLoading = false, progress = 0))
+            return tab
+        }
         if (url.isNullOrBlank()) {
             webView.loadUrl("about:blank")
         } else {
@@ -137,6 +152,27 @@ class BrowserTabManager(
                 .onFailure { Log.w(TAG, "Rejected start URL: $url"); webView.loadUrl("about:blank") }
         }
         return tab
+    }
+
+    /**
+     * tabId -> the url a restored background tab has not fetched yet.
+     *
+     * Nothing is requested for these tabs at restore: a session of ten tabs used
+     * to start ten page loads (ten parses, ten sets of subresource fetches, ten
+     * scripts) in the same moment the visible tab was fetching and painting its
+     * first frame. The entry is consumed — and the page loaded — the first time
+     * the tab is selected. Only read and written on the main thread.
+     */
+    private val pendingLoads = HashMap<String, String>()
+
+    /** Starts a deferred tab's load once it is on screen. No-op for other tabs. */
+    private fun loadIfDeferred(tab: BrowserTab) {
+        val url = pendingLoads.remove(tab.id) ?: return
+        runCatching { tab.webView.loadUrl(url) }
+            .onFailure {
+                Log.w(TAG, "Rejected restored URL: $url")
+                runCatching { tab.webView.loadUrl("about:blank") }
+            }
     }
 
     /**
@@ -154,15 +190,20 @@ class BrowserTabManager(
      * The first restored tab becomes active, which is what the caller used to do
      * with an explicit selectTab() straight afterwards.
      */
-    fun restoreTabs(urls: List<String>) {
-        if (urls.isEmpty()) return
-        val created = ArrayList<BrowserTab>(urls.size)
-        for (url in urls) created.add(createTabInternal(url, false))
+    fun restoreTabs(entries: List<RestoreEntry>) {
+        if (entries.isEmpty()) return
+        val created = ArrayList<BrowserTab>(entries.size)
+        // Every tab is built with its saved title but no network work; the tab
+        // that ends up on screen is the only one that loads now.
+        for (entry in entries) {
+            created.add(createTabInternal(entry.url, false, deferLoad = true, title = entry.title))
+        }
         setTabs(_tabs.value + created)
         if (_activeTabId.value == null) _activeTabId.value = created.first().id
         syncTabVisibility()
         publishInfos()
         syncPrivateCount()
+        activeTab()?.let { loadIfDeferred(it) }
     }
 
     /**
@@ -265,6 +306,7 @@ class BrowserTabManager(
         _activeTabId.value = id
         syncTabVisibility()
         publishInfos()
+        loadIfDeferred(tab)
     }
 
     fun closeTab(id: String) {
@@ -336,6 +378,7 @@ class BrowserTabManager(
         if (candidate != null) {
             _activeTabId.value = candidate.id
             syncTabVisibility()
+            loadIfDeferred(candidate)
         } else {
             newTab(url = "", isPrivate = enabled)
         }
@@ -669,6 +712,9 @@ class BrowserTabManager(
         runCatching { (tab.webView.parent as? android.view.ViewGroup)?.removeView(tab.webView) }
         runCatching { tab.webView.destroy() }
         lastProgress.remove(tab.id)
+        // A rebuild loads the tab's url on the fresh WebView, so any deferral
+        // held for the old one is spent: keeping it would load the page twice.
+        pendingLoads.remove(tab.id)
         appliedCss.remove(tab.id)
         appliedSettings.remove(tab.id)
         faviconToken.remove(tab.id)
@@ -717,6 +763,7 @@ class BrowserTabManager(
 
     private fun detach(tab: BrowserTab) {
         lastProgress.remove(tab.id)
+        pendingLoads.remove(tab.id)
         rendererVisible.remove(tab.id)
         appliedCss.remove(tab.id)
         appliedSettings.remove(tab.id)
@@ -825,6 +872,7 @@ class BrowserTabManager(
         _tabInfos.value = emptyList()
         _activeTabId.value = null
         lastProgress.clear()
+        pendingLoads.clear()
         rendererVisible.clear()
         appliedCss.clear()
         appliedSettings.clear()
