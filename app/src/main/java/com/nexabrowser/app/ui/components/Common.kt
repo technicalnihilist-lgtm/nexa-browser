@@ -40,7 +40,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.size.Precision
+import com.nexabrowser.app.util.FaviconSizing
 import com.nexabrowser.app.util.UrlUtils
 import com.nexabrowser.app.util.FaviconPathCache
 import java.io.File
@@ -123,9 +128,29 @@ fun CachedFavicon(path: String?, url: String, size: Dp = 28.dp, modifier: Modifi
     // bookmark and reading-list lists, and a new File per recomposition was
     // allocation (and a new Coil cache key lookup) on every scrolled frame.
     val file = remember(path) { path?.takeIf { FaviconPathCache.exists(it) }?.let { File(it) } }
-    if (file != null) {
+    // Ask the loader for the icon at the size it is actually drawn.
+    //
+    // `model = file` made Coil build a fresh ImageRequest on every
+    // recomposition — one per visible row per frame while a list scrolled — and
+    // decode the stored PNG at its own size (up to 96px) rather than at the
+    // 20–28dp box it lands in. Remembering the request per (file, size) removes
+    // the per-frame allocation, and the explicit size decodes straight to the
+    // drawn edge, so the bitmap cache holds a third less memory per icon. The
+    // picture on screen is unchanged: same file, same box, same content scale.
+    val context = LocalContext.current
+    val density = LocalDensity.current.density
+    val request = remember(file, size, density, context) {
+        file?.let {
+            ImageRequest.Builder(context)
+                .data(it)
+                .size(FaviconSizing.decodeEdge(size.value, density))
+                .precision(Precision.EXACT)
+                .build()
+        }
+    }
+    if (request != null) {
         AsyncImage(
-            model = file,
+            model = request,
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = modifier.size(size).clip(RoundedCornerShape(7.dp))

@@ -80,4 +80,27 @@ class FaviconSizingTest {
         assertThat(FaviconSizing.needsScale(60, 60, max = 96)).isFalse()
         assertThat(FaviconSizing.needsScale(60, 60, max = 50)).isTrue()
     }
+
+    @Test
+    fun `decode edge follows the drawn size and the screen density`() {
+        // 28dp at 2.625x is ~73px: decode there instead of at the stored 96px.
+        assertThat(FaviconSizing.decodeEdge(28f, 2.625f)).isEqualTo(73)
+        assertThat(FaviconSizing.decodeEdge(24f, 2f)).isEqualTo(48)
+        assertThat(FaviconSizing.decodeEdge(20f, 3f)).isEqualTo(60)
+    }
+
+    @Test
+    fun `decode edge never exceeds the stored icon size`() {
+        // A 4x screen would ask for 112px, which the file cannot provide.
+        assertThat(FaviconSizing.decodeEdge(28f, 4f)).isEqualTo(FaviconSizing.MAX_ICON_EDGE)
+        assertThat(FaviconSizing.decodeEdge(28f, 4f, max = 64)).isEqualTo(64)
+    }
+
+    @Test
+    fun `decode edge is at least one pixel`() {
+        assertThat(FaviconSizing.decodeEdge(0f, 3f)).isEqualTo(1)
+        assertThat(FaviconSizing.decodeEdge(-8f, 3f)).isEqualTo(1)
+        assertThat(FaviconSizing.decodeEdge(28f, 0f)).isEqualTo(1)
+        assertThat(FaviconSizing.decodeEdge(0.1f, 1f)).isEqualTo(1)
+    }
 }

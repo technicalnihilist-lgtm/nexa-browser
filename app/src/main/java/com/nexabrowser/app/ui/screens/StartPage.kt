@@ -77,6 +77,9 @@ object StartBackgrounds {
     }
 }
 
+/** Lazy-grid key for the trailing "Add shortcut" tile, which has no id. */
+private const val ADD_TILE_KEY = "start-page-add-tile"
+
 /**
  * The start page. Everything on it is real user data — shortcuts the user made,
  * frequently visited sites computed from stored history, and recent visits.
@@ -215,7 +218,12 @@ fun StartPage(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    items(tiles) { item ->
+                    // Keyed by shortcut id: without a key the grid identified
+                    // its cells by position, so adding, deleting or reordering
+                    // one shortcut threw away every other cell's state and
+                    // re-created its icon request. The "Add" tile has no id and
+                    // keeps a fixed key.
+                    items(tiles, key = { it?.id ?: ADD_TILE_KEY }) { item ->
                         if (item == null) {
                             ShortcutTile(
                                 title = "Add",

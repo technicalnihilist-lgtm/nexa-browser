@@ -33,6 +33,26 @@ object FaviconSizing {
     }
 
     /**
+     * Pixel edge an icon should be *decoded* at for a slot [dp] wide.
+     *
+     * The lists draw a stored icon in a 24–28dp box, but the file on disk is up
+     * to [MAX_ICON_EDGE] pixels on its longest edge. Handing that file to an
+     * image loader with no size made every distinct box decode and keep its own
+     * full-size copy in the bitmap cache: 96 × 96 × 4 bytes ≈ 36 KB per icon,
+     * for a slot that is drawn at ~73px on a 2.6x screen. Asking for the drawn
+     * size instead decodes straight to it — the same picture on screen, roughly
+     * a third less bitmap memory per row.
+     *
+     * Never larger than [MAX_ICON_EDGE]: a bigger request than the stored file
+     * would only upscale it, which costs memory and buys no sharpness.
+     */
+    fun decodeEdge(dp: Float, density: Float, max: Int = MAX_ICON_EDGE): Int {
+        if (dp <= 0f || density <= 0f) return 1
+        val px = (dp * density).toInt().coerceAtLeast(1)
+        return if (px > max) max else px
+    }
+
+    /**
      * Target size for an icon of [width] x [height]: the longest edge is capped
      * at [max] and the other edge keeps the aspect ratio, never below 1px.
      */
