@@ -44,6 +44,7 @@ import com.nexabrowser.app.ui.components.CachedFavicon
 import com.nexabrowser.app.ui.components.EmptyState
 import com.nexabrowser.app.ui.theme.NexaIcons
 import com.nexabrowser.app.util.DateLabels
+import com.nexabrowser.app.util.HistoryGrouping
 import com.nexabrowser.app.util.UrlUtils
 
 /**
@@ -63,19 +64,21 @@ fun HistoryScreen(
     var query by remember { mutableStateOf("") }
     var clearDialog by remember { mutableStateOf(false) }
 
-    val filtered = remember(history, query) {
-        if (query.isBlank()) history
-        else history.filter {
-            it.title.contains(query, ignoreCase = true) || it.url.contains(query, ignoreCase = true)
-        }
+    // Filtering and day grouping in one remembered pass. It used to be two:
+    // a `filter` that copied the list, then a `groupBy` whose key lambda ran
+    // DateLabels.dayLabel for every row — 20,000 Calendar writes and, past the
+    // last two days, 20,000 SimpleDateFormat calls on the main thread, redone on
+    // every keystroke in the search box. HistoryGrouping walks the (already
+    // sorted) list once, formats a label only when the day changes, and returns
+    // the sections the list draws, so a keystroke costs a scan and a handful of
+    // formats. See HistoryGrouping for the details and the order fallback.
+    //
+    // One "now" for the whole pass, so a list drawn across midnight cannot put
+    // two entries of the same day under different headings.
+    val grouped = remember(history, query) {
+        HistoryGrouping.build(history, query, System.currentTimeMillis())
     }
-
-    // One "now" for the whole grouping pass, so a list drawn across midnight
-    // cannot put two entries of the same day under different headings.
-    val grouped = remember(filtered) {
-        val now = System.currentTimeMillis()
-        filtered.groupBy { DateLabels.dayLabel(it.visitedAt, now) }
-    }
+    val filteredCount = remember(grouped) { HistoryGrouping.count(grouped) }
 
     Column(modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -92,7 +95,7 @@ fun HistoryScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "${filtered.size} entr" + if (filtered.size == 1) "y" else "ies",
+                "$filteredCount entr" + if (filteredCount == 1) "y" else "ies",
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f).padding(start = 8.dp)
@@ -102,7 +105,7 @@ fun HistoryScreen(
             }
         }
 
-        if (filtered.isEmpty()) {
+        if (filteredCount == 0) {
             EmptyState(
                 title = if (query.isBlank()) "No history yet" else "No matches",
                 subtitle = if (query.isBlank()) {
@@ -118,7 +121,9 @@ fun HistoryScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 72.dp)
             ) {
-                grouped.forEach { (day, entries) ->
+                grouped.forEach { section ->
+                    val day = section.label
+                    val entries = section.entries
                     item(key = "header-$day") {
                         Text(
                             day,

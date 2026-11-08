@@ -252,6 +252,12 @@ class FaviconStore(private val context: Context) {
         pruned = true
         runCatching {
             val files = dir.listFiles()?.filter { it.isFile } ?: return@runCatching
+            // Icons written by the old naming scheme are unreachable now — their
+            // names were the host's 32-bit hashCode — so they are deleted here
+            // rather than left to age out. Only files that look exactly like an
+            // old name are touched; a `.tmp` file of a write in flight is not.
+            files.filter { FaviconNaming.isLegacyName(it.name) }
+                .forEach { runCatching { it.delete() } }
             if (files.size <= MAX_STORED_ICONS) return@runCatching
             val entries = files.map { it.name to it.lastModified() }
             FaviconPruning.victims(entries, MAX_STORED_ICONS).forEach { name ->
@@ -270,7 +276,7 @@ class FaviconStore(private val context: Context) {
         synchronized(storedSizes) { storedSizes.clear() }
     }
 
-    private fun fileFor(host: String) = File(dir, "${host.hashCode()}.png")
+    private fun fileFor(host: String) = File(dir, FaviconNaming.fileNameFor(host))
 
     private companion object {
         const val MAX_CACHED_HOSTS = 256
