@@ -28,12 +28,38 @@ data class TabInfo(
  * One browsing tab: an observable [TabInfo] plus the [WebView] that renders it.
  * The WebView is owned here and must be destroyed exactly once, by
  * [BrowserTabManager] when the tab is closed or the manager is shut down.
+ *
+ * The WebView is built on first use rather than in the constructor. Restoring a
+ * ten-tab session used to construct ten WebViews — each one a native view, a
+ * WebSettings object and a provider binding, tens of milliseconds on the main
+ * thread — before the first frame could be drawn, for nine pages the user was
+ * not even looking at. A restored background tab now costs one [TabInfo] until
+ * the user selects it; [BrowserTabManager] creates the view at that moment, so
+ * the tab is complete by the time anything can draw it.
+ *
+ * Access must stay on the main thread (the same thread that owns the tab list),
+ * which is why the lazy uses [LazyThreadSafetyMode.NONE].
  */
 class BrowserTab(
     val id: String,
     val isPrivate: Boolean,
-    val webView: WebView
+    webViewProvider: () -> WebView
 ) {
+
+    private val webViewLazy = lazy(LazyThreadSafetyMode.NONE) { webViewProvider() }
+
+    /**
+     * The WebView behind this tab, constructed on first access.
+     *
+     * Every caller that reaches this property wants to touch the live page, so
+     * creating it here is the correct behaviour; code that only wants to know
+     * whether the view exists yet must use [hasWebView] so it never forces one
+     * into existence.
+     */
+    val webView: WebView get() = webViewLazy.value
+
+    /** True once the WebView has actually been constructed. */
+    val hasWebView: Boolean get() = webViewLazy.isInitialized()
     private val _state = MutableStateFlow(
         TabInfo(
             id = id,
@@ -64,6 +90,10 @@ class BrowserTab(
     }
 
     internal fun destroy() {
+        // A tab that was restored but never looked at has no WebView to tear
+        // down: nothing was created, so nothing can leak.
+        if (!webViewLazy.isInitialized()) return
+        val webView = webViewLazy.value
         runCatching {
             webView.stopLoading()
             // A WebView destroyed while still attached to a view hierarchy is a

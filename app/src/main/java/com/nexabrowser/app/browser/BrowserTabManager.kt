@@ -125,26 +125,36 @@ class BrowserTabManager(
         title: String = ""
     ): BrowserTab {
         val id = "tab-${++idCounter}-${System.currentTimeMillis()}"
-        val webView = BrowserWebViewFactory.create(
-            context = webViewContext(),
-            tabId = id,
-            settings = settingsProvider(),
-            sink = this,
-            host = host,
-            settingsProvider = settingsProvider
-        )
-        val tab = BrowserTab(id, isPrivate, webView)
-        rendererVisible[id] = true
+        // The WebView is built when this tab is first drawn or first touched,
+        // not here. A restored background tab therefore costs one TabInfo until
+        // the user selects it instead of a full WebView construction on the main
+        // thread during cold start; the provider runs on the same thread the tab
+        // manager owns, with the settings that are current at that moment.
+        val tab = BrowserTab(id, isPrivate) {
+            BrowserWebViewFactory.create(
+                context = webViewContext(),
+                tabId = id,
+                settings = settingsProvider(),
+                sink = this,
+                host = host,
+                settingsProvider = settingsProvider
+            )
+        }
         if (title.isNotEmpty()) tab.restore(tab.info.copy(title = title))
         if (deferLoad && !url.isNullOrBlank()) {
-            // A restored tab the user is not looking at yet: the WebView exists
-            // but fetches nothing. The url is carried in the tab's metadata so
-            // the tab strip, the session write and a later selection all see
-            // the page the user left there.
+            // A restored tab the user is not looking at yet: no WebView is
+            // created and nothing is fetched. The url is carried in the tab's
+            // metadata so the tab strip, the session write and a later
+            // selection all see the page the user left there.
             pendingLoads[id] = url
             tab.restore(tab.info.copy(url = url, isLoading = false, progress = 0))
+            // No renderer is running for this tab, which is exactly the state
+            // syncTabVisibility() would demote it to anyway.
+            rendererVisible[id] = false
             return tab
         }
+        rendererVisible[id] = true
+        val webView = tab.webView
         if (url.isNullOrBlank()) {
             webView.loadUrl("about:blank")
         } else {
@@ -214,6 +224,12 @@ class BrowserTabManager(
      */
     fun onHostStopped() {
         _tabs.value.forEach { tab ->
+            // A tab that has never been shown has no WebView and no renderer,
+            // so there is nothing to pause.
+            if (!tab.hasWebView) {
+                rendererVisible[tab.id] = false
+                return@forEach
+            }
             // Nothing is visible while the Activity is away, so every tab is
             // marked paused and the state stays in step with the WebView.
             //
@@ -237,7 +253,7 @@ class BrowserTabManager(
         // process-wide switch the platform provides for exactly this moment, so
         // a backgrounded app costs no renderer CPU at all. Every WebView is
         // resumed individually in syncTabVisibility() when the app returns.
-        _tabs.value.firstOrNull()?.let { BrowserWebViewFactory.pauseTimers(it.webView) }
+        _tabs.value.firstOrNull { it.hasWebView }?.let { BrowserWebViewFactory.pauseTimers(it.webView) }
     }
 
     /**
@@ -264,6 +280,8 @@ class BrowserTabManager(
         val active = _activeTabId.value
         _tabs.value.forEach { tab ->
             if (tab.id == active) return@forEach
+            // A tab with no WebView holds no renderer memory to give back.
+            if (!tab.hasWebView) return@forEach
             // freeMemory() is a hint that the platform honours on older WebView
             // versions and treats as a no-op on newer ones, which is exactly why
             // it is only asked for when the process is already under pressure.
@@ -275,7 +293,7 @@ class BrowserTabManager(
     fun onHostStarted() {
         // Timer pause/resume acts on the whole process, so one live WebView is
         // enough to turn timers back on for every tab.
-        _tabs.value.firstOrNull()?.let { BrowserWebViewFactory.resumeTimers(it.webView) }
+        _tabs.value.firstOrNull { it.hasWebView }?.let { BrowserWebViewFactory.resumeTimers(it.webView) }
         if (_tabs.value.isNotEmpty()) syncTabVisibility()
     }
 
@@ -293,6 +311,14 @@ class BrowserTabManager(
         _tabs.value.forEach { tab ->
             val visible = tab.id == active
             if (rendererVisible[tab.id] == visible) return@forEach
+            // A background tab that has never been shown has no WebView to
+            // demote, and touching it here would construct one — which is the
+            // cost this whole path exists to avoid. The one case that must
+            // create it is the tab becoming visible, handled just below.
+            if (!tab.hasWebView && !visible) {
+                rendererVisible[tab.id] = false
+                return@forEach
+            }
             BrowserWebViewFactory.setTabVisible(tab.webView, visible)
             rendererVisible[tab.id] = visible
         }
@@ -401,6 +427,10 @@ class BrowserTabManager(
         _tabs.value.forEach { tab ->
             val previous = appliedSettings[tab.id]
             appliedSettings[tab.id] = settings
+            // A tab whose WebView has not been built yet needs no writes: the
+            // provider hands the then-current settings to the factory when the
+            // view is finally created.
+            if (!tab.hasWebView) return@forEach
             // Only the fields WebView actually reads are worth a write. The
             // settings flow re-emits for every preference write, including the
             // ones that are purely visual (theme, accent, corners, wallpaper,
@@ -452,6 +482,9 @@ class BrowserTabManager(
      * injection at all, and toggling an extension still takes effect at once.
      */
     private fun applyPageCss(tab: BrowserTab, css: String) {
+        // Nothing to inject into until the tab has a WebView; the memo stays
+        // empty so the first page this tab loads gets the styles normally.
+        if (!tab.hasWebView) return
         val previous = appliedCss[tab.id]
         if (css.isBlank()) {
             if (previous == null) return
@@ -482,6 +515,7 @@ class BrowserTabManager(
 
     /** Injects the Do Not Track shim into the tab's current document, once. */
     private fun applyDoNotTrack(tab: BrowserTab) {
+        if (!tab.hasWebView) return
         if (!settingsProvider().doNotTrackEnabled) {
             // Turning the preference off must let a later re-enable inject again.
             dntInjected.remove(tab.id)
@@ -733,7 +767,7 @@ class BrowserTabManager(
         // rebuild: create() only knows the global default.
         BrowserWebViewFactory.applySettings(webView, settings, userAgentFor(tab, settings))
 
-        val fresh = BrowserTab(tab.id, tab.isPrivate, webView)
+        val fresh = BrowserTab(tab.id, tab.isPrivate) { webView }
         fresh.restore(
             info.copy(
                 isLoading = urlToLoad != null,
@@ -860,8 +894,8 @@ class BrowserTabManager(
         // constructing and destroying a throwaway WebView — which starts and
         // tears down a whole renderer process — on the main thread at the
         // moment the last private tab closes.
-        val live = (_tabs.value.firstOrNull { it.id == _activeTabId.value }
-            ?: _tabs.value.firstOrNull())?.webView
+        val live = (_tabs.value.firstOrNull { it.id == _activeTabId.value && it.hasWebView }
+            ?: _tabs.value.firstOrNull { it.hasWebView })?.webView
         scope.launch { privateManager.syncOpenPrivateTabs(count, settingsProvider().cookiesEnabled, live) }
     }
 

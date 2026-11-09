@@ -64,40 +64,58 @@ class PrivateBrowsingManager(private val context: Context) {
         }
     }
 
-    suspend fun endSession(clearCookies: Boolean, liveWebView: WebView? = null) = withContext(Dispatchers.Main) {
+    /**
+     * Ends the private session.
+     *
+     * The WebView and WebStorage calls have to run on the UI thread, but the
+     * cookie work does not: `CookieManager.flush()` writes the cookie store to
+     * disk, and it used to run on the main thread at the exact moment the last
+     * private tab closed — i.e. while the tab strip, the new blank tab and the
+     * closing animation were all being drawn. It runs on the IO dispatcher now,
+     * so ending a private session cannot stall a frame. Nothing is left behind:
+     * this function still returns only once both halves have finished.
+     */
+    suspend fun endSession(clearCookies: Boolean, liveWebView: WebView? = null) {
         sessionVisitedUrls.clear()
-        runCatching { WebStorage.getInstance().deleteAllData() }
-            .onFailure { Log.w(TAG, "Could not clear DOM storage", it) }
-        // clearCache() is an instance method. An already-live WebView is used
-        // when one was handed over, because the alternative is expensive: a
-        // freshly constructed WebView initialises the Chromium provider and
-        // starts a whole renderer process, only to call clearCache() on it and
-        // destroy it again — all on the main thread, every single time the last
-        // private tab closed. Closing that tab always leaves a regular tab
-        // behind (the tab manager opens a blank one), so the fallback below is
-        // the rare path rather than the normal one.
-        //
-        // The throwaway view is still destroyed when it is used: a WebView that
-        // is merely dropped keeps a live renderer process (and its memory) for
-        // the rest of the app's life.
-        runCatching {
-            if (liveWebView != null) {
-                liveWebView.clearCache(true)
-            } else {
-                val temp = WebView(context)
-                try {
-                    temp.clearCache(true)
-                } finally {
-                    runCatching { temp.destroy() }
-                }
-            }
-        }.onFailure { Log.w(TAG, "Could not clear the WebView cache", it) }
-        if (clearCookies) {
+        withContext(Dispatchers.Main) {
+            runCatching { WebStorage.getInstance().deleteAllData() }
+                .onFailure { Log.w(TAG, "Could not clear DOM storage", it) }
+            // clearCache() is an instance method. An already-live WebView is
+            // used when one was handed over, because the alternative is
+            // expensive: a freshly constructed WebView initialises the Chromium
+            // provider and starts a whole renderer process, only to call
+            // clearCache() on it and destroy it again — all on the main thread,
+            // every single time the last private tab closed. Closing that tab
+            // always leaves a regular tab behind (the tab manager opens a blank
+            // one), so the fallback below is the rare path rather than the
+            // normal one.
+            //
+            // The throwaway view is still destroyed when it is used: a WebView
+            // that is merely dropped keeps a live renderer process (and its
+            // memory) for the rest of the app's life.
             runCatching {
-                val cm = CookieManager.getInstance()
-                cm.removeAllCookies(null)
-                cm.flush()
-            }.onFailure { Log.w(TAG, "Could not clear cookies", it) }
+                if (liveWebView != null) {
+                    liveWebView.clearCache(true)
+                } else {
+                    val temp = WebView(context)
+                    try {
+                        temp.clearCache(true)
+                    } finally {
+                        runCatching { temp.destroy() }
+                    }
+                }
+            }.onFailure { Log.w(TAG, "Could not clear the WebView cache", it) }
+        }
+        if (clearCookies) {
+            // CookieManager is safe to use off the UI thread, and flush() is the
+            // one call here that touches the disk.
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val cm = CookieManager.getInstance()
+                    cm.removeAllCookies(null)
+                    cm.flush()
+                }.onFailure { Log.w(TAG, "Could not clear cookies", it) }
+            }
         }
         Log.i(TAG, "Private session ended; session data cleared (cookies=$clearCookies)")
     }
