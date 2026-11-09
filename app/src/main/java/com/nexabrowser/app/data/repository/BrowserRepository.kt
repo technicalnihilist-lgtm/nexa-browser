@@ -19,7 +19,9 @@ import com.nexabrowser.app.domain.model.Shortcut
 import com.nexabrowser.app.domain.model.SitePermission
 import com.nexabrowser.app.domain.model.SitePermissionRecord
 import com.nexabrowser.app.domain.model.TopSite
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 /**
@@ -28,6 +30,24 @@ import kotlinx.coroutines.flow.map
  * layer never depends on Room types.
  */
 class BrowserRepository(private val db: NexaDatabase) {
+
+    /**
+     * Every table below is mapped from Room rows to domain objects in a `map`
+     * operator, and every one of those flows is collected through
+     * `stateIn(viewModelScope, …)` — i.e. on the **main** dispatcher. Room runs
+     * the SQL itself on its query executor, but the transform that follows it
+     * ran on whatever thread collected the flow, so the row mapping did not:
+     * opening History mapped the whole table (one [HistoryEntry] per visit — a
+     * 20k-visit history is 20k allocations) on the UI thread, and every history
+     * write re-mapped it again while that screen was open. The same applied to
+     * bookmarks, downloads and the reading list on every write.
+     *
+     * `flowOn(Dispatchers.Default)` moves the collection — and with it the
+     * mapping — off the main thread. Only the finished list is handed back to
+     * the collector, so the UI still sees exactly the same values in the same
+     * order; it just no longer does the mapping work itself.
+     */
+    private fun <T> Flow<T>.offMainThread(): Flow<T> = flowOn(Dispatchers.Default)
 
     private val bookmarkDao = db.bookmarkDao()
     private val folderDao = db.bookmarkFolderDao()
@@ -39,10 +59,13 @@ class BrowserRepository(private val db: NexaDatabase) {
 
     // ---------------------------------------------------------------- bookmarks
 
-    val bookmarks: Flow<List<Bookmark>> = bookmarkDao.observeAll().map { list -> list.map { it.toDomain() } }
+    val bookmarks: Flow<List<Bookmark>> =
+        bookmarkDao.observeAll().map { list -> list.map { it.toDomain() } }.offMainThread()
 
     val bookmarkFolders: Flow<List<BookmarkFolder>> =
-        folderDao.observeAll().map { list -> list.map { BookmarkFolder(it.id, it.name, it.position) } }
+        folderDao.observeAll()
+            .map { list -> list.map { BookmarkFolder(it.id, it.name, it.position) } }
+            .offMainThread()
 
     suspend fun isBookmarked(url: String): Boolean = bookmarkDao.countByUrl(url) > 0
 
@@ -87,16 +110,17 @@ class BrowserRepository(private val db: NexaDatabase) {
 
     // ----------------------------------------------------------------- history
 
-    val history: Flow<List<HistoryEntry>> = historyDao.observeAll().map { list -> list.map { it.toDomain() } }
+    val history: Flow<List<HistoryEntry>> =
+        historyDao.observeAll().map { list -> list.map { it.toDomain() } }.offMainThread()
 
     fun searchHistory(query: String): Flow<List<HistoryEntry>> =
-        historyDao.search(query).map { list -> list.map { it.toDomain() } }
+        historyDao.search(query).map { list -> list.map { it.toDomain() } }.offMainThread()
 
     suspend fun recentHistory(limit: Int): List<HistoryEntry> = historyDao.recent(limit).map { it.toDomain() }
 
     /** Only the newest [limit] visits — what the start page renders. */
     fun recentVisits(limit: Int = 6): Flow<List<HistoryEntry>> =
-        historyDao.observeRecent(limit).map { list -> list.map { it.toDomain() } }
+        historyDao.observeRecent(limit).map { list -> list.map { it.toDomain() } }.offMainThread()
 
     /**
      * Frequently visited pages, computed from real history rows.
@@ -122,7 +146,7 @@ class BrowserRepository(private val db: NexaDatabase) {
                 TopSitesMerge.titlesOf(historyDao.titlesForUrls(rows.map { it.url }))
             }
             TopSitesMerge.merge(rows, titles).map { TopSite(it.url, it.title, it.visits, it.lastVisit) }
-        }
+        }.offMainThread()
 
     /**
      * Records a visit. Consecutive visits to the same URL within a short window
@@ -147,7 +171,7 @@ class BrowserRepository(private val db: NexaDatabase) {
     // ------------------------------------------------------------ reading list
 
     val readingList: Flow<List<ReadingListItem>> =
-        readingListDao.observeAll().map { list -> list.map { it.toDomain() } }
+        readingListDao.observeAll().map { list -> list.map { it.toDomain() } }.offMainThread()
 
     suspend fun isInReadingList(url: String): Boolean = readingListDao.countByUrl(url) > 0
 
@@ -164,7 +188,7 @@ class BrowserRepository(private val db: NexaDatabase) {
     // --------------------------------------------------------------- shortcuts
 
     val shortcuts: Flow<List<Shortcut>> =
-        shortcutDao.observeAll().map { list -> list.map { it.toDomain() } }
+        shortcutDao.observeAll().map { list -> list.map { it.toDomain() } }.offMainThread()
 
     suspend fun addShortcut(title: String, url: String, faviconUrl: String? = null, position: Int = 0): Long =
         shortcutDao.insert(ShortcutEntity(title = title.ifBlank { url }, url = url, faviconUrl = faviconUrl, position = position))
@@ -206,7 +230,7 @@ class BrowserRepository(private val db: NexaDatabase) {
     // -------------------------------------------------------- site permissions
 
     val sitePermissions: Flow<List<SitePermissionRecord>> =
-        permissionDao.observeAll().map { list -> list.mapNotNull { it.toDomain() } }
+        permissionDao.observeAll().map { list -> list.mapNotNull { it.toDomain() } }.offMainThread()
 
     suspend fun permissionFor(origin: String, permission: SitePermission): PermissionDecision? =
         permissionDao.find(origin, permission.key)?.let { PermissionDecision.valueOf(it.decision) }

@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -50,8 +51,18 @@ class DownloadRepository(
     private val manager: DownloadManager =
         context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
 
+    /**
+     * The stored rows, mapped to domain objects off the main thread.
+     *
+     * The screen collects this through `stateIn(viewModelScope, …)`, i.e. on the
+     * main dispatcher, so the `map` above used to run there: every progress
+     * write (once a second per active transfer, and once per finished row) re-read
+     * the table and re-mapped every row on the UI thread, and a completed
+     * download re-mapped the whole list. `flowOn` moves the collection and the
+     * mapping to [Dispatchers.Default]; the UI receives the same list as before.
+     */
     val downloads: Flow<List<DownloadItem>> =
-        dao.observeAll().map { list -> list.map { it.toDomain() } }
+        dao.observeAll().map { list -> list.map { it.toDomain() } }.flowOn(Dispatchers.Default)
 
     /** Enqueues a download and records a PENDING row. Returns the DownloadManager id. */
     suspend fun enqueue(request: DownloadRequest): Long = withContext(Dispatchers.IO) {

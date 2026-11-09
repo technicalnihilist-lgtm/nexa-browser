@@ -262,7 +262,10 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
      */
     fun saveSession() {
         val snapshot = runCatching { tabManager.sessionSnapshot() }.getOrDefault(emptyList())
-        sessionScope.launch { runCatching { repository.saveSessionTabs(snapshot) } }
+        // Goes through the tab manager so the write is skipped when the stored
+        // session is already this one: onStop() and onCleared() both save, and
+        // an app switch that changed nothing used to write the table twice.
+        sessionScope.launch { runCatching { tabManager.persistSession(snapshot) } }
     }
 
     private suspend fun refreshBookmarkState(url: String) {

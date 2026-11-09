@@ -550,7 +550,31 @@ class BrowserTabManager(
                 else Triple(url, tab.info.title, index)
             }
 
-    suspend fun saveSession() = repository.saveSessionTabs(sessionSnapshot())
+    /**
+     * The session written by this process last, or null before the first write.
+     * Only touched from [persistSession], which the caller runs off the main
+     * thread; a racing second write at worst repeats a write that was needed.
+     */
+    @Volatile
+    private var lastSavedSession: List<Triple<String, String, Int>>? = null
+
+    suspend fun saveSession() = persistSession(sessionSnapshot())
+
+    /**
+     * Stores [snapshot] unless it is the session that is already stored.
+     *
+     * Saving happens on every `onStop()` and again from `onCleared()`, so a
+     * background/foreground cycle used to write the same rows twice — each write
+     * a clear plus an insert inside one transaction, and one fsync per
+     * transaction — for a table that already held exactly those rows. See
+     * [SessionWrite]. The snapshot is still taken synchronously by the caller;
+     * only the redundant write is skipped.
+     */
+    suspend fun persistSession(snapshot: List<Triple<String, String, Int>>) {
+        if (SessionWrite.isRedundant(lastSavedSession, snapshot)) return
+        repository.saveSessionTabs(snapshot)
+        lastSavedSession = snapshot
+    }
 
     // ------------------------------------------------------------ event sink
 
