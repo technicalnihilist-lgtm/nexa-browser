@@ -607,7 +607,12 @@ class BrowserTabManager(
                 isLoading = false,
                 progress = 100,
                 url = if (blank) it.url else url,
-                error = null
+                // WebView reports onPageFinished for its own error page as
+                // well, so clearing the error here used to erase the failure
+                // that had just been reported and the "Try Again" overlay never
+                // showed. A network or TLS failure survives the finish; an HTTP
+                // status error does not, because that page really did render.
+                error = LoadOutcome.errorAfterFinish(it.error)
             )
         }
         if (blank) return

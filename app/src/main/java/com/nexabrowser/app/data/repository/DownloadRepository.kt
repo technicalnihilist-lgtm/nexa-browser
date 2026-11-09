@@ -125,11 +125,19 @@ class DownloadRepository(
 
         runCatching {
             manager.query(query)?.use { c ->
+                // The column positions are fixed for the life of the cursor, so
+                // they are resolved once here instead of once per row inside
+                // applyCursor(). `getColumnIndexOrThrow` walks the cursor's
+                // column-name table with a string comparison for every call, and
+                // this loop runs once a second for as long as anything is
+                // downloading: with five transfers that was twenty-five name
+                // scans per tick, now five.
+                val cols = CursorColumns(c)
                 while (c.moveToNext()) {
-                    val id = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
+                    val id = c.getLong(cols.id)
                     val row = byId[id] ?: continue
                     seen.add(id)
-                    applyCursor(row, c)
+                    applyCursor(row, c, cols)
                 }
             }
         }
@@ -148,6 +156,16 @@ class DownloadRepository(
         active.size
     }
 
+    /** Column positions of one DownloadManager cursor, resolved once per query. */
+    private class CursorColumns(c: Cursor) {
+        val id = c.getColumnIndexOrThrow(DownloadManager.COLUMN_ID)
+        val status = c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)
+        val downloaded = c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+        val total = c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+        val reason = c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)
+        val localUri = c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
+    }
+
     /**
      * Mirrors one cursor row into Room — but only when something actually
      * changed.
@@ -159,11 +177,11 @@ class DownloadRepository(
      * once a second for a progress bar that was not moving. Unchanged rows now
      * cost one comparison and no database work at all.
      */
-    private suspend fun applyCursor(row: DownloadEntity, c: Cursor) {
-        val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-        val downloaded = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-        val total = c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-        val reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+    private suspend fun applyCursor(row: DownloadEntity, c: Cursor, cols: CursorColumns) {
+        val status = c.getInt(cols.status)
+        val downloaded = c.getLong(cols.downloaded)
+        val total = c.getLong(cols.total)
+        val reason = c.getInt(cols.reason)
 
         val mapped = when (status) {
             DownloadManager.STATUS_PENDING -> DownloadStatus.PENDING
@@ -178,8 +196,7 @@ class DownloadRepository(
             dao.updateProgress(row.id, downloaded, total, mapped.name, reasonText, System.currentTimeMillis())
         }
         if (mapped == DownloadStatus.COMPLETED) {
-            val localUriIdx = c.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI)
-            val localUri = if (localUriIdx >= 0) c.getString(localUriIdx) else null
+            val localUri = if (cols.localUri >= 0) c.getString(cols.localUri) else null
             val uri = localUri ?: manager.getUriForDownloadedFile(row.id)?.toString()
             // A completed row is polled again on the next tick; only the first
             // one has a new URI to record.

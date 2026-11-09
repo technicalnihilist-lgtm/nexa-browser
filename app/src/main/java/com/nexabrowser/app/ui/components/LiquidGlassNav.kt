@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +50,15 @@ fun LiquidGlassNav(
     modifier: Modifier = Modifier
 ) {
     val accent = MaterialTheme.colorScheme.primary
+    // The tab counter's style is a copy of the theme's label style, and this
+    // pill recomposes on every tab-state publish (dozens of times per page
+    // load: progress, title, url, favicon, navigation flags). The copy used to
+    // be built inside the Row for each recomposition; it only depends on the
+    // theme, so it is built once per theme instead.
+    val badgeBase = MaterialTheme.typography.labelSmall
+    val badgeStyle = remember(badgeBase) {
+        badgeBase.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
 
     BarSurface(
         style = style,
@@ -112,10 +122,7 @@ fun LiquidGlassNav(
                     if (tabCount > 0) {
                         Text(
                             text = tabCount.toString(),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            ),
+                            style = badgeStyle,
                             color = accent,
                             modifier = Modifier.offset(y = 13.dp)
                         )

@@ -195,6 +195,21 @@ private fun TabCard(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    // The card header is a two-colour gradient that only depends on the theme,
+    // but it used to be rebuilt inside the modifier chain: a colour list, two
+    // copies of a colour and a Brush per card, per recomposition. The tab list
+    // is republished — and every visible card recomposed with it — up to four
+    // times a second while any tab is loading (see the background publish
+    // window in BrowserTabManager), plus once per progress tick of the tab on
+    // screen. Remembering it per theme removes those allocations without
+    // changing a pixel: identical colours, identical gradient.
+    val primary = MaterialTheme.colorScheme.primary
+    val secondary = MaterialTheme.colorScheme.secondary
+    val headerBrush = remember(primary, secondary) {
+        Brush.linearGradient(
+            listOf(primary.copy(alpha = 0.20f), secondary.copy(alpha = 0.10f))
+        )
+    }
     GlassSurface(
         shape = RoundedCornerShape(20.dp),
         elevation = if (selected) 14.dp else 6.dp,
@@ -213,14 +228,7 @@ private fun TabCard(
                 Modifier
                     .fillMaxWidth()
                     .height(64.dp)
-                    .background(
-                        Brush.linearGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
-                                MaterialTheme.colorScheme.secondary.copy(alpha = 0.10f)
-                            )
-                        )
-                    )
+                    .background(headerBrush)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(8.dp),
