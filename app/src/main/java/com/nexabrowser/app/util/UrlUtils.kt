@@ -16,6 +16,9 @@ object UrlUtils {
     private val LOCALHOST_RE = Regex("^localhost$", RegexOption.IGNORE_CASE)
     private val HOST_PORT_RE = Regex("^[a-zA-Z0-9.\\-]+:\\d{1,5}$")
 
+    private const val HTTP_SCHEME = "http://"
+    private const val HTTPS_SCHEME = "https://"
+
     private val SEARCH_SCHEMES = setOf("http", "https", "file", "about", "data", "blob", "content", "javascript", "chrome")
     private val EXTERNAL_SCHEMES = setOf("mailto", "tel", "sms", "smsto", "geo", "market", "intent", "whatsapp", "upi")
 
@@ -29,12 +32,24 @@ object UrlUtils {
         return if (t.contains("%s")) t.replace("%s", encoded) else t + encoded
     }
 
-    fun isHttpUrl(url: String): Boolean {
-        val l = url.lowercase(Locale.ROOT)
-        return l.startsWith("http://") || l.startsWith("https://")
-    }
+    /**
+     * Scheme checks, answered without allocating.
+     *
+     * Both used to lower-case the whole url first (`url.lowercase(Locale.ROOT)`),
+     * which builds a second copy of the entire string — and they are called on the
+     * paths the UI hits most: `displayUrl()` asks [isHttps] for every row of the
+     * history, bookmark, reading-list, start-page and tab-overview lists, and the
+     * address bar asks it on every tab state change. A 200-character url meant a
+     * 400-byte string plus its char array, per row, per recomposition, for an
+     * answer that is decided by the first eight characters.
+     *
+     * `startsWith(prefix, ignoreCase = true)` compares in place, so nothing is
+     * allocated and the case-insensitivity is unchanged.
+     */
+    fun isHttpUrl(url: String): Boolean =
+        url.startsWith(HTTP_SCHEME, ignoreCase = true) || url.startsWith(HTTPS_SCHEME, ignoreCase = true)
 
-    fun isHttps(url: String): Boolean = url.lowercase(Locale.ROOT).startsWith("https://")
+    fun isHttps(url: String): Boolean = url.startsWith(HTTPS_SCHEME, ignoreCase = true)
 
     /** Scheme of [url] in lower case, or "" when there is none. */
     fun schemeOf(url: String): String =
@@ -214,10 +229,19 @@ object UrlUtils {
         return searchUrl(input, queryTemplate)
     }
 
-    /** Compact form shown in the address bar: scheme hidden for https. */
+    /**
+     * Compact form shown in the address bar: scheme hidden for https.
+     *
+     * `removePrefix("https://")` is case-sensitive, so a url written as
+     * `HTTPS://example.com` — which [isHttps] correctly reports as secure — was
+     * shown with its scheme intact while every other secure url had it hidden.
+     * The scheme is now stripped by length when the case-insensitive check above
+     * matched, which also drops the second `removePrefix` (always a no-op on an
+     * https url) and the copy it could make.
+     */
     fun displayUrl(url: String): String = when {
         url.isBlank() -> ""
-        isHttps(url) -> url.removePrefix("https://").removePrefix("http://")
+        isHttps(url) -> url.substring(HTTPS_SCHEME.length)
         else -> url
     }
 

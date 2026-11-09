@@ -94,6 +94,30 @@ class UrlUtilsTest {
     }
 
     @Test
+    fun `scheme checks ignore case without touching the url`() {
+        assertThat(UrlUtils.isHttps("HTTPS://Example.com/A")).isTrue()
+        assertThat(UrlUtils.isHttps("Https://example.com")).isTrue()
+        assertThat(UrlUtils.isHttpUrl("HTTP://example.com")).isTrue()
+        assertThat(UrlUtils.isHttpUrl("https://example.com")).isTrue()
+        assertThat(UrlUtils.isHttpUrl("ftp://example.com")).isFalse()
+        assertThat(UrlUtils.isHttpUrl("")).isFalse()
+        // A url shorter than the scheme itself must not throw.
+        assertThat(UrlUtils.isHttps("htt")).isFalse()
+        assertThat(UrlUtils.isHttpUrl("h")).isFalse()
+    }
+
+    @Test
+    fun `display url strips a mixed case https scheme too`() {
+        // Used to keep the scheme, because removePrefix is case-sensitive while
+        // isHttps is not.
+        assertThat(UrlUtils.displayUrl("HTTPS://example.com/x")).isEqualTo("example.com/x")
+        assertThat(UrlUtils.displayUrl("https://example.com")).isEqualTo("example.com")
+        assertThat(UrlUtils.displayUrl("https://")).isEqualTo("")
+        assertThat(UrlUtils.displayUrl("")).isEqualTo("")
+        assertThat(UrlUtils.displayUrl("about:blank")).isEqualTo("about:blank")
+    }
+
+    @Test
     fun `origin drops path and keeps port`() {
         assertThat(UrlUtils.originOf("https://example.com:8443/a/b?c=1"))
             .isEqualTo("https://example.com:8443")

@@ -151,7 +151,14 @@ fun StartPage(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         val clockSize = MaterialTheme.typography.headlineSmall.fontSize * 2.2f
-                        if (backgroundId.isNotBlank()) {
+                        // Keyed on the brush, not on the id. "Default" is a
+                        // non-blank id that maps to no gradient, so choosing it
+                        // in Settings drew the clock as translucent white glass
+                        // over the ordinary surface — white on white in the
+                        // light theme, i.e. an invisible clock. With no
+                        // wallpaper the plain themed clock is drawn, which is
+                        // what the page shows before a wallpaper is picked.
+                        if (bg != null) {
                             // Over a wallpaper the clock is drawn as translucent
                             // glass: a light rim plus a filled gradient.
                             Box(contentAlignment = Alignment.Center) {

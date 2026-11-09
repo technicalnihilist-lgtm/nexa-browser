@@ -15,11 +15,13 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import coil.imageLoader
 import com.nexabrowser.app.browser.BrowserNavigationController
 import com.nexabrowser.app.browser.BrowserTabManager
 import com.nexabrowser.app.browser.DelegatingActivityHost
 import com.nexabrowser.app.browser.JsDialogType
 import com.nexabrowser.app.browser.LinkCleaner
+import com.nexabrowser.app.browser.MemoryTrim
 import com.nexabrowser.app.browser.PrivateBrowsingManager
 import com.nexabrowser.app.browser.TabRestorePlan
 import com.nexabrowser.app.data.local.NexaDatabase
@@ -877,8 +879,24 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     /** The Activity left the screen: no renderer keeps running in the background. */
     fun onHostStopped() = tabManager.onHostStopped()
 
-    /** The system is short of memory: give back what can be rebuilt cheaply. */
-    fun onTrimMemory(level: Int) = tabManager.onTrimMemory(level)
+    /**
+     * The system is short of memory: give back what can be rebuilt cheaply.
+     *
+     * The tab manager releases its own caches and the memory behind background
+     * renderers. The decoded-image cache is the other large rebuildable block
+     * the app holds — every favicon the lists have drawn, up to a quarter of the
+     * heap by default — and nothing released it, so under real pressure the app
+     * gave back its small caches and its background renderers and could still be
+     * killed with megabytes of decoded icons resident. It is cleared only at the
+     * levels that mean genuine pressure: a routine trip to the background must
+     * not make every visible icon decode again on the way back.
+     */
+    fun onTrimMemory(level: Int) {
+        tabManager.onTrimMemory(level)
+        if (MemoryTrim.freeRendererMemory(level)) {
+            runCatching { getApplication<Application>().imageLoader.memoryCache?.clear() }
+        }
+    }
 
     override fun onCleared() {
         saveSession()
