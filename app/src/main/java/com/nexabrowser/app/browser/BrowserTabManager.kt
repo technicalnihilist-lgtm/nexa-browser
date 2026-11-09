@@ -593,7 +593,13 @@ class BrowserTabManager(
                 url = if (blank) it.url else url,
                 isLoading = !blank,
                 progress = if (blank) it.progress else 5,
-                error = null
+                // A blank document is not a navigation: it is what a tab that
+                // has nothing to show loads to stay reloadable. Clearing the
+                // error here used to wipe the failure [rebuildTab] had just
+                // published for a tab whose renderer died and could not be
+                // reloaded, so the "page stopped responding" overlay never
+                // appeared and the user was left with an empty page.
+                error = if (blank) it.error else null
             )
         }
         if (!blank && tabById(tabId)?.isPrivate == true) privateManager.recordPrivateVisit(url)
@@ -612,7 +618,9 @@ class BrowserTabManager(
                 // that had just been reported and the "Try Again" overlay never
                 // showed. A network or TLS failure survives the finish; an HTTP
                 // status error does not, because that page really did render.
-                error = LoadOutcome.errorAfterFinish(it.error)
+                // A blank document keeps whatever the tab is showing, for the
+                // same reason as in onPageStarted: it is not a navigation.
+                error = if (blank) it.error else LoadOutcome.errorAfterFinish(it.error)
             )
         }
         if (blank) return

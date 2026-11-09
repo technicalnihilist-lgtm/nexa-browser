@@ -30,7 +30,34 @@ object AdBlocker {
     @Volatile
     private var loaded = false
 
+    /**
+     * Application context, kept only so a request that arrives before the
+     * background load has finished can still parse the list itself.
+     */
+    @Volatile
+    private var appContext: Context? = null
+
+    /**
+     * Remembers the application context without touching the asset, so
+     * [isBlocked] can finish the load itself if it has to.
+     */
+    fun attach(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    /**
+     * Reads the bundled blocklist.
+     *
+     * This used to be called from `Application.onCreate`, i.e. on the main
+     * thread before the first frame: an asset open, a buffered read of the whole
+     * file and a lowercasing pass over every line, all in front of the window the
+     * user is waiting for. It now runs on a background thread started from
+     * `onCreate`, and [isBlocked] loads the list on demand if a request beats it
+     * there — network callbacks never run on the main thread, so the same work
+     * simply happens where there is a frame to spare.
+     */
     fun ensureLoaded(context: Context) {
+        appContext = context.applicationContext
         if (loaded) return
         synchronized(this) {
             if (loaded) return
@@ -62,6 +89,10 @@ object AdBlocker {
 
     fun isBlocked(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
+        // Called for every subresource on a WebView network thread. If the
+        // background load has not finished yet, finish it here rather than
+        // letting the first requests of the first page through unblocked.
+        if (!loaded) appContext?.let { ensureLoaded(it) }
         // Runs for every subresource on the network thread. A URL host is almost
         // always already lower case, so only allocate when it is not.
         val h = if (host.hasAsciiUpper()) host.lowercase(Locale.ROOT) else host

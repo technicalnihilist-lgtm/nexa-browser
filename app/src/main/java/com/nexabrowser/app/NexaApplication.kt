@@ -14,8 +14,17 @@ class NexaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Read the bundled blocklist once, off the first page load.
-        AdBlocker.ensureLoaded(this)
+        // Read the bundled blocklist once, off the first page load — and now
+        // off the main thread as well. The parse used to run here, in onCreate,
+        // which is before the first frame: an asset open plus a lowercasing pass
+        // over every line stood between the user and the window. The context is
+        // registered immediately so a request that arrives first can finish the
+        // job on its own network thread.
+        AdBlocker.attach(this)
+        Thread({ AdBlocker.ensureLoaded(this) }, "nexa-blocklist").apply {
+            isDaemon = true
+            start()
+        }
 
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true)

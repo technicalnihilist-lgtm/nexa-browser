@@ -32,7 +32,26 @@ class BrowserNavigationController(private val tabProvider: () -> BrowserTab?) {
         return false
     }
 
-    fun reload() = webView()?.reload()
+    /**
+     * Reloads the page in the active tab.
+     *
+     * A tab can be parked on a blank document while still holding the url it
+     * belongs to — see [ReloadTarget] — and `WebView.reload()` on a blank
+     * document does nothing at all, which made the error overlay's **Try Again**
+     * button a no-op on exactly the tab that needed it. The tab's own url is
+     * loaded in that case instead.
+     */
+    fun reload() {
+        val tab = tabProvider() ?: return
+        val wv = tab.webView
+        val target = ReloadTarget.urlFor(wv.url, tab.info.url)
+        if (target != null) {
+            runCatching { wv.loadUrl(target) }.onFailure { wv.loadUrl("about:blank") }
+            return
+        }
+        wv.reload()
+    }
+
     fun stopLoading() = webView()?.stopLoading()
 
     fun load(url: String) {
