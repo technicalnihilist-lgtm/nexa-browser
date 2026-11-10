@@ -691,6 +691,10 @@ class BrowserTabManager(
         if (!FaviconSizing.needsScale(favicon.width, favicon.height)) {
             // A newer icon supersedes any scale still in flight for this tab.
             faviconToken.remove(tabId)
+            // The icon belongs to the WebView, not to us. Publishing one it has
+            // already recycled used to leave the tab strip drawing a dead
+            // bitmap, which is a hard crash in the renderer's canvas.
+            if (favicon.isRecycled) return
             updateTab(tabId) { it.copy(favicon = favicon) }
             return
         }
@@ -698,13 +702,18 @@ class BrowserTabManager(
         val token = Any()
         faviconToken[tabId] = token
         scope.launch {
+            // A scale that fails (an icon the WebView recycled while the work
+            // was queued, an out-of-memory bitmap) publishes nothing at all. It
+            // used to fall back to the source bitmap, which in that case is
+            // exactly the dead bitmap the failure was about.
             val scaled = withContext(Dispatchers.Default) {
-                runCatching { Bitmap.createScaledBitmap(favicon, w, h, true) }.getOrDefault(favicon)
+                runCatching { Bitmap.createScaledBitmap(favicon, w, h, true) }.getOrNull()
             }
             // A scale that finishes after the tab has moved on — a newer icon,
             // a rebuilt WebView, a closed tab — must not publish over it.
             if (faviconToken[tabId] !== token) return@launch
             if (byId[tabId] == null) return@launch
+            if (scaled == null || scaled.isRecycled) return@launch
             updateTab(tabId) { it.copy(favicon = scaled) }
         }
     }
@@ -792,17 +801,23 @@ class BrowserTabManager(
         dntInjected.remove(tab.id)
 
         val settings = settingsProvider()
+        // A tab may carry its own desktop-site choice, which must survive the
+        // rebuild: the factory is told about it here instead of the whole
+        // settings block being written a second time over the new view. That
+        // second pass used to run on every renderer recovery — about twenty
+        // WebSettings writes plus a CookieManager round trip through the
+        // WebView provider, on the main thread, at the moment the system is
+        // already short of memory and this is the one path that must stay
+        // cheap.
         val webView = BrowserWebViewFactory.create(
             context = webViewContext(),
             tabId = tab.id,
             settings = settings,
             sink = this,
             host = host,
-            settingsProvider = settingsProvider
+            settingsProvider = settingsProvider,
+            userAgent = userAgentFor(tab, settings)
         )
-        // A tab may carry its own desktop-site choice, which must survive the
-        // rebuild: create() only knows the global default.
-        BrowserWebViewFactory.applySettings(webView, settings, userAgentFor(tab, settings))
 
         val fresh = BrowserTab(tab.id, tab.isPrivate) { webView }
         fresh.restore(

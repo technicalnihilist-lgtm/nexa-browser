@@ -68,7 +68,16 @@ object BrowserWebViewFactory {
         settings: BrowserSettings,
         sink: TabEventSink,
         host: BrowserActivityHost,
-        settingsProvider: () -> BrowserSettings
+        settingsProvider: () -> BrowserSettings,
+        /**
+         * The user agent this tab must carry. It defaults to the global
+         * desktop-site preference, and a rebuilt tab passes its own choice —
+         * including an explicit null for "mobile", which is why this is
+         * resolved by the caller rather than defaulted at the use site. Taking
+         * it here means the settings block is written once, on construction;
+         * see [applySettings].
+         */
+        userAgent: String? = userAgentFor(settings.desktopSiteByDefault)
     ): WebView {
         val webView = WebView(context)
         webView.layoutParams = android.view.ViewGroup.LayoutParams(
@@ -80,7 +89,7 @@ object BrowserWebViewFactory {
         webView.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         webView.isScrollbarFadingEnabled = true
 
-        applySettings(webView, settings)
+        applySettings(webView, settings, userAgent)
 
         webView.webViewClient = NexaWebViewClient(tabId, sink, host, settingsProvider)
         webView.webChromeClient = NexaChromeClient(tabId, sink, host)

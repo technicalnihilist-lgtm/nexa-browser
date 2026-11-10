@@ -1,7 +1,6 @@
 package com.nexabrowser.app.ui
 
 import com.nexabrowser.app.ui.components.LiquidGlassNav
-import androidx.compose.foundation.layout.offset
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -223,11 +222,22 @@ fun BrowserScreen(
         }
 
         // ---- Bottom: address bar over navigation ----------------------
+        //
+        // The slide away and back is a draw-phase translation, not a layout
+        // offset. `Modifier.offset` moves the node's layout position, so every
+        // frame of the spring re-measured and re-laid out this whole column —
+        // the glass address bar, the navigation dock, their shadows and every
+        // icon inside them — at exactly the moment the user is scrolling the
+        // page and the frame budget is tightest. A graphicsLayer translation
+        // moves the already-laid-out pixels, so the animation now costs one
+        // draw per frame instead of a measure, a layout and a draw. The
+        // translation is part of the node's transform, so touch input follows
+        // the bars exactly as before and nothing drawn changes.
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .offset(y = footerShift)
+                .graphicsLayer { translationY = footerShift.toPx() }
                 .navigationBarsPadding()
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
