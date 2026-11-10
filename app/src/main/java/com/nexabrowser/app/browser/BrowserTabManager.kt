@@ -587,6 +587,7 @@ class BrowserTabManager(
             lastProgress[tabId] = START_PROGRESS
             appliedCss.remove(tabId)
             dntInjected.remove(tabId)
+            faviconSeen.remove(tabId)
         }
         updateTab(tabId) {
             it.copy(
@@ -688,6 +689,19 @@ class BrowserTabManager(
      */
     override fun onFavicon(tabId: String, favicon: Bitmap?) {
         if (favicon == null) return
+        // The same icon is reported more than once per page — onPageStarted hands
+        // back the document's favicon and onReceivedIcon follows with the same
+        // instance, and a site that badges its icon re-fires the callback with it
+        // on every change of the badge. See FaviconDedupe: a repeat is neither
+        // rescaled (a wasted bitmap allocation) nor published (a new tab list and
+        // a recomposition of the tab strip) for a picture already on screen.
+        val signature = FaviconDedupe.signature(
+            System.identityHashCode(favicon),
+            favicon.width,
+            favicon.height
+        )
+        if (FaviconDedupe.isRepeat(faviconSeen[tabId], signature)) return
+        faviconSeen[tabId] = signature
         if (!FaviconSizing.needsScale(favicon.width, favicon.height)) {
             // A newer icon supersedes any scale still in flight for this tab.
             faviconToken.remove(tabId)
@@ -723,6 +737,16 @@ class BrowserTabManager(
      * so a late result cannot replace a newer one.
      */
     private val faviconToken = HashMap<String, Any?>()
+
+    /**
+     * tabId -> the packed signature of the icon this tab has already accepted.
+     *
+     * Only read and written on the main thread, like the rest of the per-tab
+     * memos here. Dropped with the rest of a tab's state when it is closed or its
+     * WebView is rebuilt, and when a new document starts, so the first icon of the
+     * next page is always taken.
+     */
+    private val faviconSeen = HashMap<String, Long>()
 
     override fun onUrlChanged(tabId: String, url: String) {
         if (url == "about:blank") return
@@ -798,6 +822,7 @@ class BrowserTabManager(
         appliedCss.remove(tab.id)
         appliedSettings.remove(tab.id)
         faviconToken.remove(tab.id)
+        faviconSeen.remove(tab.id)
         dntInjected.remove(tab.id)
 
         val settings = settingsProvider()
@@ -856,6 +881,7 @@ class BrowserTabManager(
         desktopOverrides.remove(tab.id)
         rendererLosses.remove(tab.id)
         faviconToken.remove(tab.id)
+        faviconSeen.remove(tab.id)
         dntInjected.remove(tab.id)
         tab.destroy()
     }
@@ -939,8 +965,21 @@ class BrowserTabManager(
         _closedTabs.value = if (list.size > MAX_CLOSED_TABS) list.takeLast(MAX_CLOSED_TABS) else list
     }
 
+    /**
+     * The private-tab count this manager last handed to [PrivateBrowsingManager],
+     * or -1 before the first hand-over. Only touched on the main thread.
+     */
+    private var lastPrivateCount = -1
+
     private fun syncPrivateCount() {
         val count = _tabs.value.count { it.isPrivate }
+        // Every structural tab operation — a new tab, a close, a duplicate, a
+        // restore — ends here, and each of them used to launch a coroutine that
+        // read the settings and walked the tab list to find a live WebView, for a
+        // count that had usually not moved at all. The private session only ever
+        // changes when that count changes, so an unchanged count is a no-op.
+        if (count == lastPrivateCount) return
+        lastPrivateCount = count
         // A live WebView is handed over so that ending a private session can
         // clear the HTTP cache through a view that already exists, instead of
         // constructing and destroying a throwaway WebView — which starts and
@@ -965,6 +1004,7 @@ class BrowserTabManager(
         desktopOverrides.clear()
         rendererLosses.clear()
         faviconToken.clear()
+        faviconSeen.clear()
         dntInjected.clear()
         scope.cancel()
     }

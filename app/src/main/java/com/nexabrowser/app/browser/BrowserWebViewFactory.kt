@@ -398,9 +398,21 @@ private class NexaChromeClient(
         // target does exactly that) nothing used to destroy it: a live renderer,
         // holding the Activity context, leaked for the rest of the process.
         var settled = false
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        // Held so the timeout can be taken off the queue the moment the probe is
+        // settled; see below.
+        val timeout = arrayOfNulls<Runnable>(1)
         fun settle(target: String?) {
             if (settled) return
             settled = true
+            // A probe that resolves on its first navigation used to leave its
+            // fifteen-second timeout queued on the main looper. The runnable holds
+            // the closure, the closure holds the probe, and the probe holds the
+            // Activity context it was built with — so a popup that opened in
+            // 30 ms kept a destroyed WebView (and that Activity) reachable for the
+            // next fifteen seconds, on every link the page opened in a new window.
+            timeout[0]?.let { main.removeCallbacks(it) }
+            timeout[0] = null
             runCatching { probe.destroy() }
             if (target != null) host.onNewWindowRequested(tabId, target)
         }
@@ -421,8 +433,9 @@ private class NexaChromeClient(
         resultMsg.sendToTarget()
         // A Handler, not View.post: a probe that is never attached to a window
         // would keep its runnable in the attach queue and never time out.
-        android.os.Handler(android.os.Looper.getMainLooper())
-            .postDelayed({ settle(null) }, PROBE_TIMEOUT_MS)
+        val pending = Runnable { settle(null) }
+        timeout[0] = pending
+        main.postDelayed(pending, PROBE_TIMEOUT_MS)
         return true
     }
 
