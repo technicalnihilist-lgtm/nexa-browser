@@ -39,7 +39,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nexabrowser.app.domain.model.AddressBarStyle
@@ -49,6 +53,7 @@ import com.nexabrowser.app.ui.theme.barIsGlass
 import com.nexabrowser.app.ui.theme.barSecondaryColor
 import com.nexabrowser.app.ui.theme.dockCapsuleColors
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** One control in the dock. */
 data class DockAction(
@@ -106,20 +111,27 @@ fun LiquidGlassDock(
                 )
             }
 
-            val remaining = abs(position.value - target)
-            val stretch = remaining.coerceAtMost(1.4f) * 0.30f
-            val capsuleWidth = slotWidth * (0.84f + stretch)
-            val centreX = slotWidth * (position.value + 0.5f)
+            // The animated position is deliberately *not* read here any more.
+            //
+            // Reading `position.value` in composition made this whole scope —
+            // and with it all five slots, their interaction sources, their
+            // icon-scale animations and their text — recompose on every frame
+            // of the spring, i.e. 30–60 full recompositions of the dock for
+            // each tab switch. The capsule's width/offset and the lens's offset
+            // are geometry, so they are now read inside layout lambdas: the
+            // spring still moves exactly the same two boxes by exactly the same
+            // amounts, but only the layout and draw phases run per frame.
+            val density = LocalDensity.current
+            val slotWidthPx = with(density) { slotWidth.toPx() }
 
             val lensSize = minOf(slotWidth * 0.98f, maxHeight)
+            val lensHalfPx = with(density) { (lensSize / 2).roundToPx() }
 
-            // Everything below is read while the spring is running, so this
-            // scope recomposes on every animation frame (~60 a second for the
-            // length of a tab switch). The shapes and brushes depend only on
-            // the style, never on the animated position, so they are built once
-            // per style instead of once per frame: a frame used to allocate
-            // three Brush objects, three colour lists, a BorderStroke and five
-            // RoundedCornerShapes that were identical to the previous frame's.
+            // The shapes and brushes depend only on the style, never on the
+            // animated position, so they are built once per style instead of
+            // once per frame: a frame used to allocate three Brush objects,
+            // three colour lists, a BorderStroke and five RoundedCornerShapes
+            // that were identical to the previous frame's.
             val slotShape = remember { RoundedCornerShape(21.dp) }
             val capsuleHighlight = remember(isGlass) {
                 Brush.horizontalGradient(
@@ -157,8 +169,22 @@ fun LiquidGlassDock(
             // 1. The soft travelling capsule, behind the icons.
             Box(
                 Modifier
-                    .offset(x = centreX - capsuleWidth / 2)
-                    .width(capsuleWidth)
+                    .layout { measurable, constraints ->
+                        // Read in the layout phase, so the spring invalidates
+                        // layout for this node only — never composition.
+                        val stretch =
+                            abs(position.value - target).coerceAtMost(1.4f) * 0.30f
+                        val widthPx = (slotWidthPx * (0.84f + stretch))
+                            .roundToInt()
+                            .coerceIn(1, constraints.maxWidth.coerceAtLeast(1))
+                        val centrePx = slotWidthPx * (position.value + 0.5f)
+                        val placeable = measurable.measure(
+                            Constraints.fixed(widthPx, constraints.maxHeight)
+                        )
+                        layout(constraints.maxWidth, constraints.maxHeight) {
+                            placeable.place((centrePx - widthPx / 2f).roundToInt(), 0)
+                        }
+                    }
                     .fillMaxHeight()
                     .clip(slotShape)
                     .background(capsuleFill)
@@ -232,7 +258,15 @@ fun LiquidGlassDock(
             // 3. The lens, in front of everything, magnifying the active slot.
             Box(
                 Modifier
-                    .offset(x = centreX - lensSize / 2)
+                    .offset {
+                        // Deferred read: the lens rides on the same spring, and
+                        // moving it must not recompose the dock.
+                        IntOffset(
+                            (slotWidthPx * (position.value + 0.5f) - lensHalfPx)
+                                .roundToInt(),
+                            0
+                        )
+                    }
                     .size(lensSize)
                     .clip(CircleShape)
                     .background(lensFill)

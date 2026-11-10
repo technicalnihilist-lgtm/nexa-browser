@@ -321,6 +321,19 @@ class BrowserTabManager(
             }
             BrowserWebViewFactory.setTabVisible(tab.webView, visible)
             rendererVisible[tab.id] = visible
+            // A tab that becomes visible is the one the user is now looking at,
+            // so a load deferred at restore has to start here.
+            //
+            // Only selectTab() and setPrivateMode() used to consume that
+            // deferral. Every other way of arriving at a tab left it blank for
+            // good: closing the active tab hands the screen to a neighbour that
+            // may still be holding its url unfetched, and the same is true for
+            // closeAllTabs() and for the first tab of a restored session. The
+            // tab then showed an empty WebView with the saved title in the
+            // strip — the page only appeared if the user switched away and
+            // back. Doing it here covers every path at once, and it is a no-op
+            // for a tab that has no deferral or has already been loaded.
+            if (visible) loadIfDeferred(tab)
         }
     }
 
