@@ -19,6 +19,7 @@ import coil.imageLoader
 import com.nexabrowser.app.browser.BrowserNavigationController
 import com.nexabrowser.app.browser.BrowserTabManager
 import com.nexabrowser.app.browser.DelegatingActivityHost
+import com.nexabrowser.app.browser.FullscreenSession
 import com.nexabrowser.app.browser.JsDialogType
 import com.nexabrowser.app.browser.LinkCleaner
 import com.nexabrowser.app.browser.MemoryTrim
@@ -174,7 +175,14 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private var pendingJsResult: android.webkit.JsResult? = null
     private var pendingJsPromptResult: JsPromptResult? = null
     private var pendingJsType: JsDialogType? = null
-    private var pendingFullscreenCallback: WebChromeClient.CustomViewCallback? = null
+
+    /**
+     * The fullscreen view currently on screen, and the callback that hides it.
+     *
+     * Held in its own object because leaving fullscreen re-enters this ViewModel
+     * through the page's own `onHideCustomView()`; see [FullscreenSession].
+     */
+    private val fullscreen = FullscreenSession()
 
     /** A URL the app was launched with (ACTION_VIEW), consumed during restore. */
     @Volatile
@@ -861,13 +869,24 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     // ---------------------------------------------------------- fullscreen
 
     fun enterFullscreen(view: View, callback: WebChromeClient.CustomViewCallback) {
-        pendingFullscreenCallback = callback
+        fullscreen.enter(callback)
         _uiState.update { it.copy(fullscreenView = view) }
     }
 
+    /**
+     * Leaves fullscreen, exactly once.
+     *
+     * `onCustomViewHidden()` calls back into the page's
+     * `WebChromeClient.onHideCustomView()`, which the Activity forwards here
+     * again. The callback used to be cleared *after* that call, so the second
+     * entry found it still set and called it again — the back gesture or the
+     * close button while a video was fullscreen recursed until the app crashed
+     * with a `StackOverflowError`. The session hands the callback over once and
+     * forgets it, so the re-entrant call is a no-op. See [FullscreenSession].
+     */
     fun exitFullscreen() {
-        pendingFullscreenCallback?.onCustomViewHidden()
-        pendingFullscreenCallback = null
+        val callback = fullscreen.take()
+        runCatching { callback?.onCustomViewHidden() }
         _uiState.update { it.copy(fullscreenView = null) }
     }
 

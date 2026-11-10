@@ -770,6 +770,14 @@ class BrowserTabManager(
     }
 
     override fun onNavigationState(tabId: String, canGoBack: Boolean, canGoForward: Boolean) {
+        // Three callbacks report this per page load (start, finish, history
+        // update) and each one used to allocate a copy of the tab's state, plus
+        // a scan of the published list, only for [updateTab] to find the values
+        // unchanged and drop it. Reading the tab first makes a repeat cost one
+        // comparison.
+        val tab = byId[tabId] ?: return
+        val info = tab.info
+        if (info.canGoBack == canGoBack && info.canGoForward == canGoForward) return
         updateTab(tabId) { it.copy(canGoBack = canGoBack, canGoForward = canGoForward) }
     }
 

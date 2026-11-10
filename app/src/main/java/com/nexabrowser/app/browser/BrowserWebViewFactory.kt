@@ -193,15 +193,27 @@ private class NexaWebViewClient(
     private val settingsProvider: () -> BrowserSettings
 ) : WebViewClient() {
 
-    /** Ad & tracker blocking, enforced at the network layer. */
+    /**
+     * Ad & tracker blocking, enforced at the network layer.
+     *
+     * Subresources only. Answering the top-level document with the empty
+     * response meant a navigation to a blocked host produced no page, no error
+     * and no overlay — a blank screen the user could only reload into the same
+     * blank screen. See [AdBlockPolicy]. The main frame is also the one request
+     * whose latency decides when the page starts painting, so it no longer pays
+     * for a blocklist walk either.
+     */
     override fun shouldInterceptRequest(
         view: WebView,
         request: WebResourceRequest
     ): WebResourceResponse? {
-        if (settingsProvider().adBlockEnabled && AdBlocker.isBlocked(request.url.host)) {
-            return AdBlocker.emptyResponse()
+        if (request.isForMainFrame) return null
+        if (!settingsProvider().adBlockEnabled) return null
+        val blocked = AdBlocker.isBlocked(request.url.host)
+        if (!AdBlockPolicy.shouldIntercept(isForMainFrame = false, adBlockEnabled = true, blocked = blocked)) {
+            return null
         }
-        return null
+        return AdBlocker.emptyResponse()
     }
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
