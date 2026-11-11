@@ -13,19 +13,30 @@ class MemoryTrimTest {
     }
 
     @Test
-    fun `every real trim level drops the rebuildable caches`() {
+    fun `every memory-pressure level drops the rebuildable caches`() {
         val levels = listOf(
             MemoryTrim.RUNNING_MODERATE,
             MemoryTrim.RUNNING_LOW,
             MemoryTrim.RUNNING_CRITICAL,
-            MemoryTrim.UI_HIDDEN,
-            MemoryTrim.BACKGROUND,
             MemoryTrim.MODERATE,
             MemoryTrim.COMPLETE
         )
         levels.forEach { level ->
             assertThat(MemoryTrim.dropCaches(level)).isTrue()
         }
+    }
+
+    /**
+     * ON_TRIM_MEMORY_UI_HIDDEN and _BACKGROUND are delivered on every ordinary
+     * app switch. They are not pressure signals — they sorted above the
+     * RUNNING_* levels, so a `level >=` test dropped the favicon stat memo and
+     * the ad blocker's host table every time the user left the app, and the
+     * frame they came back to re-stat'ed every stored icon to rebuild them.
+     */
+    @Test
+    fun `routine backgrounding keeps the rebuildable caches`() {
+        assertThat(MemoryTrim.dropCaches(MemoryTrim.UI_HIDDEN)).isFalse()
+        assertThat(MemoryTrim.dropCaches(MemoryTrim.BACKGROUND)).isFalse()
     }
 
     @Test

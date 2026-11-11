@@ -262,8 +262,11 @@ class BrowserTabManager(
      * Until now nothing here answered that call: the ad blocker's host → decision
      * table, the favicon stat() memo and one renderer process per open tab were
      * all kept until the platform had to kill the process, which costs the user
-     * every open tab. The rebuildable caches are dropped at any trim level; the
-     * memory behind background renderers is only released under real pressure,
+     * every open tab. The rebuildable caches are dropped whenever the system
+     * reports real pressure — not on the lifecycle levels a plain app switch
+     * produces, which used to cost a rebuild of both caches on the way back —
+     * and the memory behind background renderers is only released under the
+     * same real pressure,
      * so an ordinary trip to the background never repaints a page on return.
      *
      * The active tab is skipped deliberately: freeMemory() on the page the user
