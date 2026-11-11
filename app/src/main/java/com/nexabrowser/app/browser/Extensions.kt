@@ -19,6 +19,9 @@ object AdBlocker {
 
     private const val TAG = "NexaAdBlock"
 
+    /** The index for a list that has not been read yet: matches nothing. */
+    private val EMPTY_INDEX = BlocklistIndex(emptySet())
+
     /**
      * The blocklist is published as an immutable set once it has been parsed, so
      * readers never see a half-filled list and never need a lock. Requests are
@@ -26,6 +29,16 @@ object AdBlocker {
      */
     @Volatile
     private var hosts: Set<String> = emptySet()
+
+    /**
+     * [hosts] compiled into a form that can be searched without allocating.
+     *
+     * Published together with [hosts] under the same lock, so a request thread
+     * always sees a complete pair. See [BlocklistIndex] for why the walk over a
+     * host's parent domains no longer builds a string per label.
+     */
+    @Volatile
+    private var index: BlocklistIndex = EMPTY_INDEX
 
     @Volatile
     private var loaded = false
@@ -72,6 +85,9 @@ object AdBlocker {
                 }
             }.onFailure { Log.w(TAG, "Could not read the blocklist", it) }
             hosts = parsed
+            // Compiled once, here, on the background thread that parsed the
+            // list — never on a request thread.
+            index = BlocklistIndex(parsed)
             loaded = true
             Log.i(TAG, "Blocklist loaded: ${parsed.size} hosts")
         }
@@ -108,8 +124,13 @@ object AdBlocker {
         return blocked
     }
 
-    /** The matching rule itself lives in [BlocklistMatch], where it is tested. */
-    private fun computeBlocked(h: String): Boolean = BlocklistMatch.isBlocked(h, hosts)
+    /**
+     * The matching rule itself lives in [BlocklistMatch], where it is tested;
+     * the list is searched through [BlocklistIndex], which applies the same rule
+     * without allocating a string per parent domain. Both are kept: the plain
+     * rule is the reference the index is checked against in the unit tests.
+     */
+    private fun computeBlocked(h: String): Boolean = index.isBlocked(h)
 
     fun blockedCount(): Int = hosts.size
 
@@ -133,6 +154,7 @@ object AdBlocker {
     private val EMPTY_BODY = ByteArray(0)
 
     private const val MAX_CACHED_DECISIONS = 1024
+
 
     private fun String.hasAsciiUpper(): Boolean {
         for (i in indices) if (this[i] in 'A'..'Z') return true

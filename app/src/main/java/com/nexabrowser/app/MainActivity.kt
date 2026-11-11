@@ -2,6 +2,7 @@ package com.nexabrowser.app
 
 import android.Manifest
 import android.app.Activity
+import android.content.ComponentCallbacks2
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -134,6 +135,23 @@ class MainActivity : ComponentActivity(), BrowserActivityHost {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         viewModel.onTrimMemory(level)
+    }
+
+    /**
+     * The legacy low-memory callback, which the app used to ignore entirely.
+     *
+     * [onTrimMemory] is the modern signal, but Android still delivers
+     * `onLowMemory()` on the paths that predate it, and every one of those went
+     * unanswered: nothing was dropped and no background renderer was asked to
+     * give its memory back, so the app sat on its caches until the system
+     * decided the whole process was the thing to reclaim — which costs the user
+     * every open tab. It is mapped onto the critical running level, the trim
+     * level that means the same thing, so both callbacks release exactly the
+     * same memory.
+     */
+    override fun onLowMemory() {
+        super.onLowMemory()
+        viewModel.onTrimMemory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
     }
 
     override fun onDestroy() {
