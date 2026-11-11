@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,6 +47,14 @@ import com.nexabrowser.app.ui.theme.NexaIcons
 import com.nexabrowser.app.util.DateLabels
 import com.nexabrowser.app.util.HistoryGrouping
 import com.nexabrowser.app.util.UrlUtils
+import kotlinx.coroutines.delay
+
+/**
+ * How long the search box waits for typing to pause before the history is
+ * scanned again. Short enough that the list still feels like it is following
+ * the keyboard, long enough to fold a burst of keystrokes into one pass.
+ */
+private const val HISTORY_SEARCH_DEBOUNCE_MS = 140L
 
 /**
  * Browsing history, grouped by day and searchable.
@@ -64,6 +73,27 @@ fun HistoryScreen(
     var query by remember { mutableStateOf("") }
     var clearDialog by remember { mutableStateOf(false) }
 
+    // What the history is filtered by, which trails what the user has typed.
+    //
+    // The pass below scans every stored row, so binding it to the text field
+    // meant a full scan of the history per *character*: on a 20,000-visit
+    // history that is a few hundred thousand case-insensitive comparisons on the
+    // main thread for each key, i.e. a dropped frame in the middle of the one
+    // interaction where the user is watching the list react. The field itself is
+    // driven by [query] and still updates on every key, so typing is as
+    // responsive as it was; the list catches up once typing pauses. A cleared
+    // field applies at once, so emptying the box never leaves stale results on
+    // screen.
+    var filterQuery by remember { mutableStateOf("") }
+    LaunchedEffect(query) {
+        if (query.isEmpty()) {
+            filterQuery = ""
+            return@LaunchedEffect
+        }
+        delay(HISTORY_SEARCH_DEBOUNCE_MS)
+        filterQuery = query
+    }
+
     // Filtering and day grouping in one remembered pass. It used to be two:
     // a `filter` that copied the list, then a `groupBy` whose key lambda ran
     // DateLabels.dayLabel for every row — 20,000 Calendar writes and, past the
@@ -75,8 +105,8 @@ fun HistoryScreen(
     //
     // One "now" for the whole pass, so a list drawn across midnight cannot put
     // two entries of the same day under different headings.
-    val grouped = remember(history, query) {
-        HistoryGrouping.build(history, query, System.currentTimeMillis())
+    val grouped = remember(history, filterQuery) {
+        HistoryGrouping.build(history, filterQuery, System.currentTimeMillis())
     }
     val filteredCount = remember(grouped) { HistoryGrouping.count(grouped) }
 
@@ -107,8 +137,8 @@ fun HistoryScreen(
 
         if (filteredCount == 0) {
             EmptyState(
-                title = if (query.isBlank()) "No history yet" else "No matches",
-                subtitle = if (query.isBlank()) {
+                title = if (filterQuery.isBlank()) "No history yet" else "No matches",
+                subtitle = if (filterQuery.isBlank()) {
                     "Pages you visit will appear here. Swipe a row right to delete it. Private tabs are never recorded."
                 } else {
                     null

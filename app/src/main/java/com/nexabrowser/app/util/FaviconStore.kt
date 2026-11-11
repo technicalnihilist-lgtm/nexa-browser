@@ -150,7 +150,19 @@ object FaviconPathCache {
  */
 class FaviconStore(private val context: Context) {
 
-    private val dir: File = File(context.cacheDir, "favicons").apply { mkdirs() }
+    /**
+     * The icon directory, created on first write rather than in the constructor.
+     *
+     * The store is built by `BrowserViewModel` during its own construction, i.e.
+     * on the main thread before the first frame, and `mkdirs()` there was a disk
+     * syscall (and, on the first run of a fresh install, a directory create)
+     * standing between the user and the window for a directory nothing had asked
+     * to write to yet. Every read path already tolerates a directory that does
+     * not exist — `File.exists()` is false and `listFiles()` returns null — so
+     * the create simply moves to [save], which is already on the IO dispatcher
+     * and is the only place that needs it.
+     */
+    private val dir: File = File(context.cacheDir, "favicons")
 
     /** host -> path, or null when the host is known to have no icon. */
     private val paths = object : LinkedHashMap<String, String?>(64, 0.75f, true) {
@@ -181,6 +193,10 @@ class FaviconStore(private val context: Context) {
 
     suspend fun save(host: String, bitmap: Bitmap): String? = withContext(Dispatchers.IO) {
         if (host.isBlank()) return@withContext null
+        // See [dir]: the directory is created here, on the IO dispatcher, not in
+        // the constructor on the main thread. A failure is not fatal — the write
+        // below fails cleanly and the icon is simply not cached.
+        if (!dir.isDirectory) runCatching { dir.mkdirs() }
         val (w, h) = FaviconSizing.targetSize(bitmap.width, bitmap.height)
         val signature = (w shl 16) xor h
         synchronized(storedSizes) {
