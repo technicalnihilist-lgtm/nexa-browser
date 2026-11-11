@@ -6,6 +6,8 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Environment
 import android.webkit.MimeTypeMap
+import androidx.room.withTransaction
+import com.nexabrowser.app.data.local.NexaDatabase
 import com.nexabrowser.app.data.local.dao.DownloadDao
 import com.nexabrowser.app.data.local.entity.DownloadEntity
 import com.nexabrowser.app.domain.model.DownloadItem
@@ -45,8 +47,16 @@ data class DownloadRequest(
  */
 class DownloadRepository(
     private val context: Context,
-    private val dao: DownloadDao
+    db: NexaDatabase
 ) {
+
+    private val dao: DownloadDao = db.downloadDao()
+
+    /**
+     * The database, kept only so one poll's writes can be applied as a single
+     * transaction. See [refreshActive].
+     */
+    private val database: NexaDatabase = db
 
     private val manager: DownloadManager =
         context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -113,6 +123,11 @@ class DownloadRepository(
      *
      * Returns how many rows were still active, so the caller does not have to
      * ask the database the same question a second time.
+     *
+     * Every write this poll needs is collected while the cursor is open and then
+     * applied in one transaction, and a row is only declared dead when the
+     * DownloadManager cursor was actually read — a failed query used to mark
+     * every live transfer as FAILED.
      */
     suspend fun refreshActive(): Int = withContext(Dispatchers.IO) {
         val active = dao.active()
@@ -122,12 +137,23 @@ class DownloadRepository(
         active.forEach { byId[it.id] = it }
         val query = DownloadManager.Query().setFilterById(*active.map { it.id }.toLongArray())
         val seen = HashSet<Long>(active.size)
+        // Everything this poll wants to write, collected first and applied in
+        // one transaction afterwards. See the note on [database].
+        val progressWrites = ArrayList<ProgressWrite>(active.size)
+        val uriWrites = ArrayList<Pair<Long, String>>(2)
+        val deadRows = ArrayList<Long>(0)
 
-        runCatching {
-            manager.query(query)?.use { c ->
+        // Only a poll that really read the cursor may decide a row is gone.
+        // A query that failed — a binder error, a DownloadManager that is
+        // restarting after an update — used to leave `seen` empty, and every
+        // active row was then written to FAILED: a download that was running
+        // fine showed "Download failed" and could only be restarted by hand.
+        val readOk = runCatching {
+            val cursor = manager.query(query) ?: return@runCatching false
+            cursor.use { c ->
                 // The column positions are fixed for the life of the cursor, so
                 // they are resolved once here instead of once per row inside
-                // applyCursor(). `getColumnIndexOrThrow` walks the cursor's
+                // collectWrite(). `getColumnIndexOrThrow` walks the cursor's
                 // column-name table with a string comparison for every call, and
                 // this loop runs once a second for as long as anything is
                 // downloading: with five transfers that was twenty-five name
@@ -137,24 +163,51 @@ class DownloadRepository(
                     val id = c.getLong(cols.id)
                     val row = byId[id] ?: continue
                     seen.add(id)
-                    applyCursor(row, c, cols)
+                    collectWrite(row, c, cols, progressWrites, uriWrites)
                 }
             }
-        }
+            true
+        }.getOrDefault(false)
 
-        // A row the system no longer reports is a dead record.
-        active.forEach { row ->
-            if (row.id !in seen) {
-                dao.updateStatus(
-                    row.id,
-                    DownloadStatus.FAILED.name,
-                    "Download record no longer available",
-                    System.currentTimeMillis()
-                )
+        // A row the system no longer reports is a dead record — but only when
+        // the cursor above was read successfully.
+        if (readOk) active.forEach { row -> if (row.id !in seen) deadRows.add(row.id) }
+
+        // One transaction for the whole tick. Every one of these statements used
+        // to be its own write, and each write invalidates the `downloads` table:
+        // with five transfers running that was up to five transactions and five
+        // full list re-reads per second, plus an fsync each, all while the user
+        // was scrolling the page behind the downloads sheet. Room folds the
+        // invalidations of a transaction into one notification, so the list is
+        // now re-read once per tick however many rows moved.
+        if (progressWrites.isNotEmpty() || uriWrites.isNotEmpty() || deadRows.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            database.withTransaction {
+                progressWrites.forEach { w ->
+                    dao.updateProgress(w.id, w.downloaded, w.total, w.status, w.reason, now)
+                }
+                uriWrites.forEach { (id, uri) -> dao.updateLocalUri(id, uri) }
+                deadRows.forEach { id ->
+                    dao.updateStatus(
+                        id,
+                        DownloadStatus.FAILED.name,
+                        "Download record no longer available",
+                        now
+                    )
+                }
             }
         }
         active.size
     }
+
+    /** One row's progress, as read from a poll, waiting to be written. */
+    private class ProgressWrite(
+        val id: Long,
+        val downloaded: Long,
+        val total: Long,
+        val status: String,
+        val reason: String?
+    )
 
     /** Column positions of one DownloadManager cursor, resolved once per query. */
     private class CursorColumns(c: Cursor) {
@@ -177,7 +230,13 @@ class DownloadRepository(
      * once a second for a progress bar that was not moving. Unchanged rows now
      * cost one comparison and no database work at all.
      */
-    private suspend fun applyCursor(row: DownloadEntity, c: Cursor, cols: CursorColumns) {
+    private fun collectWrite(
+        row: DownloadEntity,
+        c: Cursor,
+        cols: CursorColumns,
+        out: MutableList<ProgressWrite>,
+        uriOut: MutableList<Pair<Long, String>>
+    ) {
         val status = c.getInt(cols.status)
         val downloaded = c.getLong(cols.downloaded)
         val total = c.getLong(cols.total)
@@ -193,14 +252,14 @@ class DownloadRepository(
         val reasonText = if (mapped == DownloadStatus.FAILED) reasonText(reason) else null
 
         if (DownloadProgressRow.needsWrite(row, downloaded, total, mapped.name, reasonText)) {
-            dao.updateProgress(row.id, downloaded, total, mapped.name, reasonText, System.currentTimeMillis())
+            out.add(ProgressWrite(row.id, downloaded, total, mapped.name, reasonText))
         }
         if (mapped == DownloadStatus.COMPLETED) {
             val localUri = if (cols.localUri >= 0) c.getString(cols.localUri) else null
             val uri = localUri ?: manager.getUriForDownloadedFile(row.id)?.toString()
             // A completed row is polled again on the next tick; only the first
             // one has a new URI to record.
-            if (uri != null && uri != row.localUri) dao.updateLocalUri(row.id, uri)
+            if (uri != null && uri != row.localUri) uriOut.add(row.id to uri)
         }
     }
 
@@ -222,8 +281,7 @@ class DownloadRepository(
      */
     fun startTracking(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
-            dao.observeAll()
-                .map { rows -> DownloadActive.anyActive(rows) }
+            dao.observeAnyActive(DownloadActive.ACTIVE_STATUSES)
                 .distinctUntilChanged()
                 .collectLatest { anyActive ->
                     if (!anyActive) return@collectLatest
@@ -352,8 +410,19 @@ class DownloadRepository(
  * the "is the tracker idle?" decision is unit tested rather than inferred.
  */
 internal object DownloadActive {
+    /**
+     * The stored statuses that mean "still worth polling for".
+     *
+     * Derived from [DownloadStatus.isActive] so the rule and the SQL cannot
+     * disagree, and handed to `DownloadDao.observeAnyActive` so the tracker's
+     * trigger is one indexed `EXISTS` probe instead of a read of every row the
+     * user has ever downloaded.
+     */
+    val ACTIVE_STATUSES: List<String> =
+        DownloadStatus.entries.filter { it.isActive }.map { it.name }
+
     /** Derived from [DownloadStatus.isActive] so the two can never disagree. */
-    private val ACTIVE = DownloadStatus.entries.filter { it.isActive }.map { it.name }.toSet()
+    private val ACTIVE: Set<String> = ACTIVE_STATUSES.toSet()
 
     fun anyActive(rows: List<DownloadEntity>): Boolean = rows.any { it.status in ACTIVE }
 }

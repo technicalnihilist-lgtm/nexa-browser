@@ -19,6 +19,23 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads WHERE status IN ('PENDING','RUNNING','PAUSED')")
     suspend fun active(): List<DownloadEntity>
 
+    /**
+     * True while anything is downloading, answered by an indexed EXISTS probe.
+     *
+     * The tracker used to decide whether to poll from [observeAll], which means
+     * the whole table — every finished download the user had ever made — was
+     * read out of SQLite, materialised into [DownloadEntity] objects and walked
+     * on every single progress write, i.e. once a second for as long as any
+     * transfer was running. `status` is indexed, so this returns after one
+     * index seek and no row is ever built.
+     *
+     * The statuses come from [com.nexabrowser.app.domain.model.DownloadStatus]
+     * through `DownloadActive`, so the query and the rule the tracker documents
+     * cannot drift apart.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM downloads WHERE status IN (:statuses))")
+    fun observeAnyActive(statuses: List<String>): Flow<Boolean>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(download: DownloadEntity)
 

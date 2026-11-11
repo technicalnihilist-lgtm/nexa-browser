@@ -103,7 +103,7 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     private val db = NexaDatabase.get(application)
     private val repository = BrowserRepository(db)
-    private val downloadRepository = DownloadRepository(application, db.downloadDao())
+    private val downloadRepository = DownloadRepository(application, db)
     private val dataStore = DataStoreManager(application)
     private val faviconStore = FaviconStore(application)
     private val privateManager = PrivateBrowsingManager(application)

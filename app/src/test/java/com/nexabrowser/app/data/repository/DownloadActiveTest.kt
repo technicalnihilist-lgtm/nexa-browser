@@ -46,6 +46,21 @@ class DownloadActiveTest {
         }
     }
 
+    /**
+     * The tracker's trigger is now an indexed `EXISTS` query that takes this
+     * exact list, so the rule and the SQL have to agree on what "active" means.
+     * Pinned here so a new [DownloadStatus] cannot silently start or stop the
+     * once-a-second DownloadManager poll.
+     */
+    @Test
+    fun `the polled statuses are exactly pending running and paused`() {
+        assertThat(DownloadActive.ACTIVE_STATUSES).containsExactly(
+            DownloadStatus.PENDING.name,
+            DownloadStatus.RUNNING.name,
+            DownloadStatus.PAUSED.name
+        )
+    }
+
     @Test
     fun `an unknown status is treated as idle rather than polling forever`() {
         val row = row(DownloadStatus.COMPLETED).copy(status = "SOMETHING_NEW")
