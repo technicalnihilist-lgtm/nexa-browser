@@ -53,6 +53,40 @@ class FaviconDedupeTest {
     }
 
     @Test
+    fun `a usable icon is accepted the first time a tab sees it`() {
+        val signature = FaviconDedupe.signature(identityHashCode = 3, width = 32, height = 32)
+
+        assertThat(FaviconDedupe.shouldAccept(null, signature, recycled = false)).isTrue()
+    }
+
+    @Test
+    fun `a recycled icon is never accepted, and never remembered`() {
+        val signature = FaviconDedupe.signature(identityHashCode = 3, width = 32, height = 32)
+
+        // Rejected, so the caller must not memoise it either — which is exactly
+        // what shouldAccept asks for by answering false.
+        assertThat(FaviconDedupe.shouldAccept(null, signature, recycled = true)).isFalse()
+    }
+
+    @Test
+    fun `the same icon reported twice is accepted once`() {
+        val signature = FaviconDedupe.signature(identityHashCode = 3, width = 32, height = 32)
+
+        assertThat(FaviconDedupe.shouldAccept(signature, signature, recycled = false)).isFalse()
+    }
+
+    @Test
+    fun `a rejected icon does not shadow the report that follows it`() {
+        // The report the tab could not draw left no memo behind, so the identical
+        // instance arriving from onReceivedIcon a moment later is accepted. This
+        // is the case that used to leave the tab on its letter avatar for good.
+        val signature = FaviconDedupe.signature(identityHashCode = 3, width = 32, height = 32)
+        val memo = null // nothing was remembered for the rejected report
+
+        assertThat(FaviconDedupe.shouldAccept(memo, signature, recycled = false)).isTrue()
+    }
+
+    @Test
     fun `an oversized edge is clamped instead of overflowing into the hash`() {
         val clamped = FaviconDedupe.signature(identityHashCode = 5, width = 70000, height = 70000)
         val max = FaviconDedupe.signature(identityHashCode = 5, width = 0xFFFF, height = 0xFFFF)

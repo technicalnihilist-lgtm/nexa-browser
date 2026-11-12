@@ -22,7 +22,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 
 /** A tab that was closed and can be restored. */
 data class ClosedTab(val url: String, val title: String, val isPrivate: Boolean)
@@ -601,6 +600,9 @@ class BrowserTabManager(
         // styles, so the memo of what is on the page is dropped with the old one.
         if (!blank) {
             lastProgress[tabId] = START_PROGRESS
+            // A new document is the one thing that may start a load again after
+            // the user stopped one; see ProgressGate.
+            stoppedLoads.remove(tabId)
             appliedCss.remove(tabId)
             dntInjected.remove(tabId)
             faviconSeen.remove(tabId)
@@ -659,26 +661,38 @@ class BrowserTabManager(
     private val lastProgress = HashMap<String, Int>()
 
     /**
+     * Tabs whose current load the user stopped, and which no new document has
+     * replaced yet.
+     *
+     * Kept apart from [lastProgress] because a completed progress value does not
+     * actually suppress a late tick — a cancelled load reporting 50 % is a
+     * 50-point jump from the 100 the stop published, and the throttle rule
+     * accepts it. See [ProgressGate]. Only read and written on the main thread.
+     */
+    private val stoppedLoads = HashSet<String>()
+
+    /**
      * The user pressed stop on a page that was still loading.
      *
      * WebView does not reliably deliver `onPageFinished` for a cancelled load,
      * so the tab stayed `isLoading = true` with the progress bar frozen at its
      * last tick: the toolbar kept offering "stop" for a page that had already
      * stopped, and nothing short of a reload or a navigation cleared it. The
-     * tab is settled here instead, and the progress memo is set to complete so a
-     * late tick from the cancelled load cannot flip it back.
+     * tab is settled here instead, and the load is recorded as stopped so that a
+     * late tick from it cannot flip the tab back — a completed progress value
+     * alone does not do that, because a tick that jumps 5 points or more is
+     * published. See [ProgressGate].
      */
     fun onLoadStopped(tabId: String?) {
         val id = tabId ?: return
         if (byId[id] == null) return
         lastProgress[id] = 100
+        stoppedLoads.add(id)
         updateTab(id) { it.copy(isLoading = false, progress = 100) }
     }
 
     override fun onProgress(tabId: String, progress: Int) {
-        val previous = lastProgress[tabId] ?: -1
-        val meaningful = progress == 0 || progress >= 100 || abs(progress - previous) >= 5
-        if (!meaningful) return
+        if (!ProgressGate.isMeaningful(lastProgress[tabId], stoppedLoads.contains(tabId), progress)) return
         lastProgress[tabId] = progress
         updateTab(tabId) { it.copy(progress = progress, isLoading = progress < 100) }
     }
@@ -716,18 +730,22 @@ class BrowserTabManager(
             favicon.width,
             favicon.height
         )
-        if (FaviconDedupe.isRepeat(faviconSeen[tabId], signature)) return
-        faviconSeen[tabId] = signature
+        // The icon belongs to the WebView, not to us. Publishing one it has
+        // already recycled used to leave the tab strip drawing a dead bitmap,
+        // which is a hard crash in the renderer's canvas. The check lives inside
+        // shouldAccept rather than after the memo is written: remembering a
+        // signature the tab could not actually draw suppressed the real report
+        // that follows it (the same instance arrives again from onReceivedIcon),
+        // so the tab kept its letter avatar for the whole life of the page.
+        if (!FaviconDedupe.shouldAccept(faviconSeen[tabId], signature, favicon.isRecycled)) return
         if (!FaviconSizing.needsScale(favicon.width, favicon.height)) {
             // A newer icon supersedes any scale still in flight for this tab.
             faviconToken.remove(tabId)
-            // The icon belongs to the WebView, not to us. Publishing one it has
-            // already recycled used to leave the tab strip drawing a dead
-            // bitmap, which is a hard crash in the renderer's canvas.
-            if (favicon.isRecycled) return
+            faviconSeen[tabId] = signature
             updateTab(tabId) { it.copy(favicon = favicon) }
             return
         }
+        faviconSeen[tabId] = signature
         val (w, h) = FaviconSizing.targetSize(favicon.width, favicon.height)
         val token = Any()
         faviconToken[tabId] = token
@@ -741,9 +759,17 @@ class BrowserTabManager(
             }
             // A scale that finishes after the tab has moved on — a newer icon,
             // a rebuilt WebView, a closed tab — must not publish over it.
-            if (faviconToken[tabId] !== token) return@launch
-            if (byId[tabId] == null) return@launch
-            if (scaled == null || scaled.isRecycled) return@launch
+            val superseded = faviconToken[tabId] !== token || byId[tabId] == null ||
+                scaled == null || scaled.isRecycled
+            if (superseded) {
+                // Nothing was published, so this signature must not stay
+                // remembered: the next report of the same icon — which is what
+                // a failed scale usually gets a moment later — has to be taken.
+                // A newer icon has already written its own signature here, and
+                // only the one this attempt claimed is dropped.
+                if (faviconSeen[tabId] == signature) faviconSeen.remove(tabId)
+                return@launch
+            }
             updateTab(tabId) { it.copy(favicon = scaled) }
         }
     }
@@ -840,6 +866,7 @@ class BrowserTabManager(
         runCatching { (tab.webView.parent as? android.view.ViewGroup)?.removeView(tab.webView) }
         runCatching { tab.webView.destroy() }
         lastProgress.remove(tab.id)
+        stoppedLoads.remove(tab.id)
         // A rebuild loads the tab's url on the fresh WebView, so any deferral
         // held for the old one is spent: keeping it would load the page twice.
         pendingLoads.remove(tab.id)
@@ -898,6 +925,7 @@ class BrowserTabManager(
 
     private fun detach(tab: BrowserTab) {
         lastProgress.remove(tab.id)
+        stoppedLoads.remove(tab.id)
         pendingLoads.remove(tab.id)
         rendererVisible.remove(tab.id)
         appliedCss.remove(tab.id)
@@ -1021,6 +1049,7 @@ class BrowserTabManager(
         _tabInfos.value = emptyList()
         _activeTabId.value = null
         lastProgress.clear()
+        stoppedLoads.clear()
         pendingLoads.clear()
         rendererVisible.clear()
         appliedCss.clear()

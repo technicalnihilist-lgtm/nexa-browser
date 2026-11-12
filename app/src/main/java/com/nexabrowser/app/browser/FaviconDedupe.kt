@@ -49,4 +49,23 @@ object FaviconDedupe {
      * i.e. there is nothing new to scale or publish.
      */
     fun isRepeat(previous: Long?, signature: Long): Boolean = previous == signature
+
+    /**
+     * True when a reported icon may be published: it has to still be usable, and
+     * it must not already be the icon this tab has accepted.
+     *
+     * The order of those two questions is the point. `onFavicon` used to record
+     * the signature *first* and only then notice that the bitmap was unusable, so
+     * a report the tab could not draw was remembered as though it had been. The
+     * consequence was permanent for that document: the WebView hands back the
+     * same instance again a moment later (the document's icon, then
+     * `onReceivedIcon`), that second report matched the memo and was dropped, and
+     * the tab kept its letter avatar for the life of the page — the same for an
+     * icon whose rescale failed, which also left the memo behind.
+     *
+     * @param recycled the WebView has already recycled the bitmap, so drawing it
+     *   would crash the canvas it was published to.
+     */
+    fun shouldAccept(previous: Long?, signature: Long, recycled: Boolean): Boolean =
+        !recycled && !isRepeat(previous, signature)
 }
