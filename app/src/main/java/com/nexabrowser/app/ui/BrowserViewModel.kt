@@ -413,17 +413,36 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    /** Saves a WebView web archive so the page is genuinely available offline. */
+    /**
+     * Saves a WebView web archive so the page is genuinely available offline.
+     *
+     * The archive directory is created on the IO dispatcher, not here: this is
+     * called from the reading-list action, i.e. on the main thread the moment
+     * the user taps it, and `mkdirs()` is a disk round trip (and, on the first
+     * save of a fresh install, a directory create) in the middle of the tap's
+     * frame. `saveWebArchive` itself has to stay on the main thread — it drives
+     * the WebView — and the existence check on its result moved off the main
+     * thread with the rest of the file work.
+     */
     private fun saveOfflineCopy(readingListId: Long) {
         val webView = tabManager.activeTab()?.webView ?: return
-        val dir = java.io.File(getApplication<Application>().filesDir, "reading").apply { mkdirs() }
-        val file = java.io.File(dir, "page-$readingListId.mht")
-        webView.saveWebArchive(file.absolutePath, false) { path ->
-            viewModelScope.launch {
-                if (path != null && java.io.File(path).exists()) {
-                    repository.setOfflineCopy(readingListId, path, true)
-                } else {
-                    repository.setOfflineCopy(readingListId, null, false)
+        viewModelScope.launch {
+            val dir = withContext(Dispatchers.IO) {
+                java.io.File(getApplication<Application>().filesDir, "reading").apply {
+                    if (!isDirectory) runCatching { mkdirs() }
+                }
+            }
+            val file = java.io.File(dir, "page-$readingListId.mht")
+            webView.saveWebArchive(file.absolutePath, false) { path ->
+                viewModelScope.launch {
+                    val exists = withContext(Dispatchers.IO) {
+                        path != null && java.io.File(path).isFile
+                    }
+                    if (exists) {
+                        repository.setOfflineCopy(readingListId, path, true)
+                    } else {
+                        repository.setOfflineCopy(readingListId, null, false)
+                    }
                 }
             }
         }
@@ -431,7 +450,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     fun removeFromReadingList(item: ReadingListItem) {
         viewModelScope.launch {
-            item.archivePath?.let { runCatching { java.io.File(it).delete() } }
+            // Deleting the offline copy is an unlink on the frame the user swipes
+            // the row away; it is not needed to draw the result, so it happens
+            // off the main thread.
+            item.archivePath?.let { path ->
+                withContext(Dispatchers.IO) { runCatching { java.io.File(path).delete() } }
+            }
             repository.removeFromReadingList(item.id)
         }
     }
