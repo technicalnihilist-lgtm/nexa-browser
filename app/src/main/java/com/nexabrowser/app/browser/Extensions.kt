@@ -3,7 +3,7 @@ package com.nexabrowser.app.browser
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.util.Locale
 
 /**
@@ -143,15 +143,36 @@ object AdBlocker {
         decisions.clear()
     }
 
-    /** An empty response used to satisfy (and thus drop) a blocked request. */
+    /**
+     * An empty response used to satisfy (and thus drop) a blocked request.
+     *
+     * This is built for every blocked subresource — an ad-heavy page blocks
+     * dozens in one load — and each call used to allocate a `ByteArrayInputStream`
+     * over an empty array as well. The body is a constant, so the stream is a
+     * constant too: [EMPTY_STREAM] is stateless (every read reports end-of-body
+     * and `close()` does nothing), which makes it safe to hand to any number of
+     * concurrent requests on the WebView's network threads. Only the small
+     * response object, which WebView may keep per request, is still created
+     * here.
+     */
     fun emptyResponse(): android.webkit.WebResourceResponse =
         android.webkit.WebResourceResponse(
             "text/plain",
             "utf-8",
-            ByteArrayInputStream(EMPTY_BODY)
+            EMPTY_STREAM
         )
 
-    private val EMPTY_BODY = ByteArray(0)
+    /**
+     * A stream over an empty body: every read is end-of-stream, and closing it is
+     * a no-op so one instance can be shared between requests.
+     */
+    private val EMPTY_STREAM: InputStream = object : InputStream() {
+        override fun read(): Int = -1
+        override fun read(b: ByteArray, off: Int, len: Int): Int = -1
+        override fun available(): Int = 0
+        override fun skip(n: Long): Long = 0
+        override fun close() = Unit
+    }
 
     private const val MAX_CACHED_DECISIONS = 1024
 
@@ -175,12 +196,43 @@ object PageInjections {
         }
     """.trimIndent()
 
+    /**
+     * The stylesheet last built, with the three settings that decide it.
+     *
+     * [cssFor] is asked on every completed page load of every tab and on every
+     * settings emission, and the answer is the same string until one of those
+     * three preferences changes. Remembering it turns a `MutableList`, a
+     * `StringBuilder` and a fresh string per call into one reference comparison.
+     */
+    @Volatile
+    private var cachedKey: CssKey? = null
+
+    @Volatile
+    private var cachedCss: String = ""
+
+    private data class CssKey(val darkPages: Boolean, val customCss: String)
+
     /** Builds the style text for a page from the enabled extensions. */
     fun cssFor(settings: com.nexabrowser.app.data.prefs.BrowserSettings): String {
-        val parts = mutableListOf<String>()
-        if (settings.darkPagesEnabled) parts.add(DARK_PAGES_CSS)
-        if (settings.customCssEnabled && settings.customCss.isNotBlank()) parts.add(settings.customCss)
-        return parts.joinToString("\n")
+        // The default configuration — no page extensions — allocates nothing at
+        // all and returns the empty string, which is the case that runs on
+        // almost every page load.
+        val custom = if (settings.customCssEnabled) settings.customCss else ""
+        val dark = settings.darkPagesEnabled
+        if (!dark && custom.isBlank()) return ""
+
+        val key = CssKey(dark, custom)
+        val cached = cachedKey
+        if (cached != null && cached == key) return cachedCss
+
+        val css = when {
+            dark && custom.isNotBlank() -> DARK_PAGES_CSS + "\n" + custom
+            dark -> DARK_PAGES_CSS
+            else -> custom
+        }
+        cachedKey = key
+        cachedCss = css
+        return css
     }
 
     /** JavaScript that installs (or clears) the injected style element. */
