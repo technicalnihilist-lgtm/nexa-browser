@@ -47,7 +47,9 @@ import com.nexabrowser.app.ui.theme.NexaIcons
 import com.nexabrowser.app.util.DateLabels
 import com.nexabrowser.app.util.HistoryGrouping
 import com.nexabrowser.app.util.UrlUtils
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * How long the search box waits for typing to pause before the history is
@@ -105,8 +107,23 @@ fun HistoryScreen(
     //
     // One "now" for the whole pass, so a list drawn across midnight cannot put
     // two entries of the same day under different headings.
-    val grouped = remember(history, filterQuery) {
-        HistoryGrouping.build(history, filterQuery, System.currentTimeMillis())
+    //
+    // The pass itself runs off the frame thread. It walks every stored row, and
+    // it is re-run whenever the history changes — which, with this screen open,
+    // is every completed page load in another tab — and again on every debounced
+    // keystroke. On a 20,000-visit history that is a scan and a section build
+    // that used to happen inside composition, i.e. between the frame that
+    // arrived and the frame that could be drawn. The first result is still built
+    // inline so the screen draws its list immediately instead of flashing the
+    // empty state; every later pass lands a moment after the frame, which is
+    // exactly when the previous list is still correct to look at.
+    var grouped by remember {
+        mutableStateOf(HistoryGrouping.build(history, filterQuery, System.currentTimeMillis()))
+    }
+    LaunchedEffect(history, filterQuery) {
+        grouped = withContext(Dispatchers.Default) {
+            HistoryGrouping.build(history, filterQuery, System.currentTimeMillis())
+        }
     }
     val filteredCount = remember(grouped) { HistoryGrouping.count(grouped) }
 
