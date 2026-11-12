@@ -196,7 +196,7 @@ class FaviconStore(private val context: Context) {
         // See [dir]: the directory is created here, on the IO dispatcher, not in
         // the constructor on the main thread. A failure is not fatal — the write
         // below fails cleanly and the icon is simply not cached.
-        if (!dir.isDirectory) runCatching { dir.mkdirs() }
+        ensureDir()
         val (w, h) = FaviconSizing.targetSize(bitmap.width, bitmap.height)
         val signature = (w shl 16) xor h
         synchronized(storedSizes) {
@@ -238,7 +238,13 @@ class FaviconStore(private val context: Context) {
             runCatching { temp.delete() }
             false
         }
-        if (!written) return@withContext null
+        if (!written) {
+            // The directory may have been reclaimed (a cache wipe, a full
+            // partition) between two writes: forget that it was ready so the
+            // next icon recreates it instead of failing the same way forever.
+            dirReady = false
+            return@withContext null
+        }
 
         pruneStoredIcons()
 
@@ -246,6 +252,26 @@ class FaviconStore(private val context: Context) {
         synchronized(paths) { paths[host] = target.absolutePath }
         FaviconPathCache.markStored(target.absolutePath)
         target.absolutePath
+    }
+
+    /**
+     * Set once the icon directory is known to exist.
+     *
+     * [save] runs once per completed page load, and it used to `stat()` the
+     * directory every time — a disk round trip on the IO dispatcher for an
+     * answer that only changes when the cache directory is reclaimed. The flag
+     * is cleared again when a write fails, so a wiped directory is recreated by
+     * the next icon rather than being assumed to exist for the rest of the
+     * process.
+     */
+    @Volatile
+    private var dirReady = false
+
+    /** Creates the icon directory once per process, on the IO dispatcher. */
+    private fun ensureDir() {
+        if (dirReady) return
+        if (!dir.isDirectory) runCatching { dir.mkdirs() }
+        dirReady = dir.isDirectory
     }
 
     /** Set once the directory has been capped for this process. */
@@ -286,6 +312,8 @@ class FaviconStore(private val context: Context) {
     }
 
     fun clear() {
+        // The directory is about to be emptied; the next write recreates it.
+        dirReady = false
         runCatching { dir.listFiles()?.forEach { it.delete() } }
         FaviconPathCache.clear()
         synchronized(paths) { paths.clear() }
