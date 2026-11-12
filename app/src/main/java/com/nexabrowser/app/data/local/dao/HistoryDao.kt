@@ -69,8 +69,19 @@ interface HistoryDao {
     @Insert
     suspend fun insert(entry: HistoryEntity): Long
 
-    @Query("UPDATE history SET visitedAt = :visitedAt, title = :title WHERE id = :id")
-    suspend fun touch(id: Long, visitedAt: Long, title: String)
+    /**
+     * Folds a repeat visit into an existing row.
+     *
+     * `faviconUrl` is written here as well as `title`. It used to be left out,
+     * so the icon a repeat visit had just written to disk was dropped on the
+     * floor and the row kept the `null` it was inserted with — a site visited
+     * once, then reloaded, showed a letter avatar in history for good even
+     * though its icon was cached. The caller passes the merged value from
+     * [com.nexabrowser.app.data.repository.HistoryDedupe], which decides
+     * whether an incoming `null` may clear the stored path (it may not).
+     */
+    @Query("UPDATE history SET visitedAt = :visitedAt, title = :title, faviconUrl = :faviconUrl WHERE id = :id")
+    suspend fun touch(id: Long, visitedAt: Long, title: String, faviconUrl: String?)
 
     @Query("DELETE FROM history WHERE id = :id")
     suspend fun deleteById(id: Long)

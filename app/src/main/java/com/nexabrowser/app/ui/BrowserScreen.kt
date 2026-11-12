@@ -61,12 +61,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nexabrowser.app.browser.PageError
 import com.nexabrowser.app.browser.TabInfo
 import com.nexabrowser.app.data.prefs.BrowserSettings
-import com.nexabrowser.app.domain.model.HistoryEntry
-import com.nexabrowser.app.domain.model.Shortcut
-import com.nexabrowser.app.domain.model.TopSite
 import com.nexabrowser.app.ui.components.AddressBar
 import com.nexabrowser.app.ui.components.DockAction
 import com.nexabrowser.app.ui.components.LiquidGlassDock
@@ -90,9 +88,6 @@ fun BrowserScreen(
     tabCount: Int,
     isBookmarked: Boolean,
     settings: BrowserSettings,
-    shortcuts: List<Shortcut>,
-    topSites: List<TopSite>,
-    recent: List<HistoryEntry>,
     onOpenUrl: (String) -> Unit,
     onShare: () -> Unit,
     modifier: Modifier = Modifier
@@ -132,16 +127,10 @@ fun BrowserScreen(
         // ---- Page ------------------------------------------------------
         Box(Modifier.fillMaxSize().backdropBlur(uiState.menuOpen, 22.dp)) {
             if (activeTab == null || activeTab.showStartPage) {
-                StartPage(
-                    shortcuts = shortcuts,
-                    topSites = topSites,
-                    recent = recent,
-                    showClock = settings.showClockOnStartPage,
-                    backgroundId = settings.startPageBackground,
-                    onOpenUrl = onOpenUrl,
-                    onAddShortcut = viewModel::addShortcut,
-                    onDeleteShortcut = viewModel::deleteShortcut,
-                    onReorderShortcuts = viewModel::reorderShortcuts
+                StartPageRoute(
+                    viewModel = viewModel,
+                    settings = settings,
+                    onOpenUrl = onOpenUrl
                 )
             } else {
                 WebViewHost(
@@ -377,4 +366,48 @@ private fun ErrorOverlay(error: PageError, onRetry: () -> Unit) {
             }
         }
     }
+}
+
+/**
+ * The start page, with the data it draws collected here rather than at the
+ * composition root.
+ *
+ * [StartPage] shows three lists, and all three come from the history table:
+ * shortcuts the user made, the most frequently visited urls (a `GROUP BY url`
+ * over the whole history) and the newest visits. Until now the root composable
+ * collected all three and passed them down, so every completed page load — which
+ * writes one history row — published a new value for two of them and recomposed
+ * the root, the theme, the animated screen container and the live browser
+ * surface with it, for data that only the start page draws. The top-sites
+ * aggregate was re-run by Room on every one of those writes too, while the user
+ * was reading a page that does not show it.
+ *
+ * Collecting them inside the branch that draws the start page fixes both: the
+ * root no longer sees a history write at all, and the two `WhileSubscribed`
+ * flows — `topSites` and `recentVisits` — lose their last subscriber the moment
+ * the start page goes away, so the aggregate query stops running until the user
+ * is back on a page that displays it. Nothing drawn changes: the same three
+ * lists reach the same composable in the same order.
+ */
+@Composable
+private fun StartPageRoute(
+    viewModel: BrowserViewModel,
+    settings: BrowserSettings,
+    onOpenUrl: (String) -> Unit
+) {
+    val shortcuts by viewModel.shortcuts.collectAsStateWithLifecycle()
+    val topSites by viewModel.topSites.collectAsStateWithLifecycle()
+    val recent by viewModel.recentVisits.collectAsStateWithLifecycle()
+
+    StartPage(
+        shortcuts = shortcuts,
+        topSites = topSites,
+        recent = recent,
+        showClock = settings.showClockOnStartPage,
+        backgroundId = settings.startPageBackground,
+        onOpenUrl = onOpenUrl,
+        onAddShortcut = viewModel::addShortcut,
+        onDeleteShortcut = viewModel::deleteShortcut,
+        onReorderShortcuts = viewModel::reorderShortcuts
+    )
 }

@@ -156,8 +156,19 @@ class BrowserRepository(private val db: NexaDatabase) {
         if (url.isBlank() || url.startsWith("about:")) return
         val now = System.currentTimeMillis()
         val latest = historyDao.mostRecentForUrl(url)
-        if (latest != null && now - latest.visitedAt < DEDUPE_WINDOW_MS) {
-            historyDao.touch(latest.id, now, title.ifBlank { latest.title })
+        if (latest != null && HistoryDedupe.isRepeat(latest.visitedAt, now)) {
+            // The repeat is folded into the row already stored for this url.
+            // The title and the icon are merged rather than overwritten: this
+            // load may have finished before the page had a title or the site
+            // had delivered an icon, and the row's values are better than
+            // nothing. The icon was previously not written at all here, which
+            // is why a site visited once and reloaded kept a blank avatar.
+            historyDao.touch(
+                latest.id,
+                now,
+                HistoryDedupe.titleFor(latest.title, title),
+                HistoryDedupe.iconFor(latest.faviconUrl, faviconUrl)
+            )
         } else {
             historyDao.insert(HistoryEntity(title = title.ifBlank { url }, url = url, faviconUrl = faviconUrl, visitedAt = now))
         }
@@ -252,9 +263,5 @@ class BrowserRepository(private val db: NexaDatabase) {
         val perm = SitePermission.fromKey(permission) ?: return null
         val decision = runCatching { PermissionDecision.valueOf(this.decision) }.getOrNull() ?: return null
         return SitePermissionRecord(origin, perm, decision, updatedAt)
-    }
-
-    companion object {
-        private const val DEDUPE_WINDOW_MS = 30_000L
     }
 }

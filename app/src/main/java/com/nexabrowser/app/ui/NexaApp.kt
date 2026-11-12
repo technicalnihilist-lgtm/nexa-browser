@@ -86,13 +86,14 @@ fun NexaApp(
     val activeId by activeIdState
     val privateMode by viewModel.tabManager.privateMode.collectAsStateWithLifecycle()
     val isBookmarked by viewModel.isBookmarked.collectAsStateWithLifecycle()
-    val shortcuts by viewModel.shortcuts.collectAsStateWithLifecycle()
-    val topSites by viewModel.topSites.collectAsStateWithLifecycle()
-    // Only the handful of visits the start page shows. The full history, the
-    // bookmark lists and the download list are collected inside the screens that
-    // display them (below), so a history write or a download progress tick no
-    // longer recomposes this root and the live WebView surface with it.
-    val recentVisits by viewModel.recentVisits.collectAsStateWithLifecycle()
+    // The start page's three lists — shortcuts, the frequently-visited
+    // aggregate and the newest visits — are deliberately *not* collected here.
+    // They are collected inside the start page itself (see BrowserScreen), which
+    // is the only thing that draws them: a history write publishes a new value
+    // for two of them on every completed page load, and collecting them at this
+    // root meant every page load recomposed the theme, the animated screen
+    // container and the live WebView surface, and re-ran the top-sites `GROUP BY`
+    // while a page that never shows it was on screen.
 
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -172,9 +173,6 @@ fun NexaApp(
                     tabCount = visibleTabs.size,
                     isBookmarked = isBookmarked,
                     settings = settings,
-                    shortcuts = shortcuts,
-                    topSites = topSites,
-                    recent = recentVisits,
                     onOpenUrl = { url -> viewModel.submitAddress(url) },
                     onShare = {
                         activeTab?.url?.takeIf { it.isNotBlank() }?.let { shareText(context, it) }
