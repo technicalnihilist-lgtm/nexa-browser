@@ -195,4 +195,62 @@ class UrlUtilsTest {
     fun `blank input resolves to blank`() {
         assertThat(UrlUtils.resolveInput("   ", google)).isEmpty()
     }
+
+    // schemeOf used to run a regular expression (`^[a-zA-Z][a-zA-Z0-9+.\-]*:`).
+    // It now scans the prefix in place, so the cases below pin down that the
+    // answer is the same for every shape of input the address bar can be handed.
+
+    @Test
+    fun `scheme is read from the prefix in lower case`() {
+        assertThat(UrlUtils.schemeOf("https://example.com/x")).isEqualTo("https")
+        assertThat(UrlUtils.schemeOf("http://example.com")).isEqualTo("http")
+        assertThat(UrlUtils.schemeOf("about:blank")).isEqualTo("about")
+        assertThat(UrlUtils.schemeOf("javascript:void(0)")).isEqualTo("javascript")
+        assertThat(UrlUtils.schemeOf("data:text/plain,hi")).isEqualTo("data")
+        assertThat(UrlUtils.schemeOf("file:///data/x.html")).isEqualTo("file")
+        assertThat(UrlUtils.schemeOf("mailto:a@b.com")).isEqualTo("mailto")
+    }
+
+    @Test
+    fun `an upper case scheme is folded to lower case`() {
+        assertThat(UrlUtils.schemeOf("HTTPS://example.com")).isEqualTo("https")
+        assertThat(UrlUtils.schemeOf("HtTp://example.com")).isEqualTo("http")
+        assertThat(UrlUtils.schemeOf("MAILTO:a@b.com")).isEqualTo("mailto")
+    }
+
+    @Test
+    fun `scheme allows the characters the spec allows`() {
+        assertThat(UrlUtils.schemeOf("svn+ssh://host/x")).isEqualTo("svn+ssh")
+        assertThat(UrlUtils.schemeOf("web+ap://host/x")).isEqualTo("web+ap")
+        assertThat(UrlUtils.schemeOf("ms-appx://host/x")).isEqualTo("ms-appx")
+        assertThat(UrlUtils.schemeOf("a.b://host/x")).isEqualTo("a.b")
+        assertThat(UrlUtils.schemeOf("chrome-extension://abc/x")).isEqualTo("chrome-extension")
+    }
+
+    @Test
+    fun `strings without a scheme have none`() {
+        assertThat(UrlUtils.schemeOf("")).isEmpty()
+        assertThat(UrlUtils.schemeOf("example.com/x")).isEmpty()
+        assertThat(UrlUtils.schemeOf("how does android work")).isEmpty()
+        assertThat(UrlUtils.schemeOf("1http://example.com")).isEmpty()
+        assertThat(UrlUtils.schemeOf(":no-scheme")).isEmpty()
+        assertThat(UrlUtils.schemeOf("http//example.com")).isEmpty()
+        assertThat(UrlUtils.schemeOf("has space:here")).isEmpty()
+        // A scheme must be followed by a colon: a bare word is not one.
+        assertThat(UrlUtils.schemeOf("localhost")).isEmpty()
+    }
+
+    @Test
+    fun `a single letter scheme is still a scheme`() {
+        assertThat(UrlUtils.schemeOf("a:b")).isEqualTo("a")
+        assertThat(UrlUtils.schemeOf("A:b")).isEqualTo("a")
+    }
+
+    @Test
+    fun `resolving an upper case cleartext url keeps it cleartext`() {
+        // resolveInput passes anything with a scheme through untouched, and the
+        // scheme check behind it is now the in-place scan rather than the regex.
+        assertThat(UrlUtils.resolveInput("HTTP://example.com/x", google))
+            .isEqualTo("HTTP://example.com/x")
+    }
 }

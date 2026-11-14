@@ -66,4 +66,72 @@ class FaviconNamingTest {
         assertFalse(FaviconNaming.isLegacyName("-"))
         assertFalse(FaviconNaming.isLegacyName(""))
     }
+
+    /**
+     * The digest is now reused per thread instead of being created per call, so
+     * the name must still be exactly the truncated SHA-256 of the lower-cased
+     * host — recomputed here with a fresh `MessageDigest` for comparison.
+     */
+    @Test
+    fun `the reused digest produces the same name as a fresh one`() {
+        val hosts = listOf(
+            "example.com", "www.example.com", "Example.COM", "news.ycombinator.com",
+            "xn--80ak6aa92e.example.co.in", "a", "a.b.c.d.e.f"
+        )
+        for (host in hosts) {
+            assertEquals(sha256Name(host), FaviconNaming.fileNameFor(host))
+        }
+    }
+
+    /**
+     * A reused digest that is not reset would fold the previous host into the
+     * next hash; calling the same host again, interleaved with others, is what
+     * catches that.
+     */
+    @Test
+    fun `repeated lookups are independent of what came before`() {
+        val first = FaviconNaming.fileNameFor("example.com")
+        FaviconNaming.fileNameFor("other.example.org")
+        FaviconNaming.fileNameFor("third.test")
+        assertEquals(first, FaviconNaming.fileNameFor("example.com"))
+        assertEquals(sha256Name("example.com"), first)
+    }
+
+    /**
+     * The digest is per thread, so threads hashing at the same time must not see
+     * each other's state.
+     */
+    @Test
+    fun `concurrent lookups agree with the single threaded ones`() {
+        val hosts = (0 until 64).map { "host$it.example.com" }
+        val expected = hosts.associateWith { FaviconNaming.fileNameFor(it) }
+        val errors = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val threads = (0 until 4).map {
+            Thread {
+                // Reversed order, so a digest shared between threads would fold
+                // one host into another's hash and be caught here.
+                for (host in hosts.reversed()) {
+                    val actual = FaviconNaming.fileNameFor(host)
+                    if (actual != expected[host]) errors.add("$host -> $actual")
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        assertTrue("wrong names: $errors", errors.isEmpty())
+    }
+
+    private fun sha256Name(host: String): String {
+        val bytes = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(host.lowercase(java.util.Locale.ROOT).toByteArray(Charsets.UTF_8))
+        val hex = "0123456789abcdef"
+        val sb = StringBuilder(32)
+        var i = 0
+        while (sb.length < 32 && i < bytes.size) {
+            val v = bytes[i].toInt() and 0xFF
+            sb.append(hex[v ushr 4]).append(hex[v and 0x0F])
+            i++
+        }
+        return "$sb.png"
+    }
 }

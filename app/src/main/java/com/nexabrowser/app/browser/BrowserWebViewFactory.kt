@@ -274,8 +274,18 @@ private class NexaWebViewClient(
             settingsProvider().forceHttpsEnabled &&
             !PageInjections.isLocalHost(request.url.host)
         ) {
-            view.loadUrl(url.replaceFirst("http://", "https://"))
-            return true
+            // The rewrite is a case-insensitive splice by length, not a regex
+            // replacement: see [HttpsUpgrade]. The old `replaceFirst` compiled a
+            // Pattern per navigation and, because it matched case-sensitively,
+            // handed an `HTTP://…` url back to loadUrl() unchanged — which fires
+            // this callback again with the same url, so the navigation looped
+            // instead of being upgraded. A url with no `//` after the scheme is
+            // left to load normally rather than being mangled.
+            val upgraded = HttpsUpgrade.upgraded(url)
+            if (upgraded != null) {
+                view.loadUrl(upgraded)
+                return true
+            }
         }
 
         return when (scheme) {

@@ -10,7 +10,6 @@ import java.util.Locale
  */
 object UrlUtils {
 
-    private val SCHEME_RE = Regex("^[a-zA-Z][a-zA-Z0-9+.\\-]*:")
     private val DOMAIN_RE = Regex("^([a-zA-Z0-9]([a-zA-Z0-9\\-]*[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,}$")
     private val IPV4_RE = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
     private val LOCALHOST_RE = Regex("^localhost$", RegexOption.IGNORE_CASE)
@@ -51,9 +50,57 @@ object UrlUtils {
 
     fun isHttps(url: String): Boolean = url.startsWith(HTTPS_SCHEME, ignoreCase = true)
 
-    /** Scheme of [url] in lower case, or "" when there is none. */
-    fun schemeOf(url: String): String =
-        if (SCHEME_RE.containsMatchIn(url)) url.substringBefore(':').lowercase(Locale.ROOT) else ""
+    /**
+     * Scheme of [url] in lower case, or "" when there is none.
+     *
+     * This used to run the `SCHEME_RE` regular expression over the whole url and
+     * then `substringBefore(':')`. A `Regex` match allocates a `Matcher`, its
+     * match state and an `IntArray` of group offsets before it answers, and the
+     * answer only ever depends on the first few characters: a scheme is a letter,
+     * then letters, digits, `+`, `-` or `.`, then a colon. [schemeEnd] scans
+     * exactly those and stops at the first character that cannot be part of a
+     * scheme, so the common case — a url with no scheme, or an `https` one — is
+     * decided in a handful of character comparisons and allocates nothing.
+     *
+     * It is called on every address-bar submit (twice: once to resolve the input,
+     * once to check the resulting scheme), for every tab of a restored session,
+     * and for every site-permission prompt, so it is worth not running a regex
+     * engine for it. The returned value is identical to the regex's for every
+     * input, including upper-case schemes (`HTTP://x` -> `http`) and strings whose
+     * first character cannot start a scheme (`1http://x` -> "").
+     */
+    fun schemeOf(url: String): String {
+        val end = schemeEnd(url)
+        if (end <= 0) return ""
+        // A url's scheme is almost always already lower case, so only pay for the
+        // copy and the locale walk when there is actually something to fold.
+        var upper = false
+        for (i in 0 until end) {
+            if (url[i] in 'A'..'Z') {
+                upper = true
+                break
+            }
+        }
+        return if (upper) url.substring(0, end).lowercase(Locale.ROOT) else url.substring(0, end)
+    }
+
+    /**
+     * Index of the `:` that ends a scheme at the start of [url], or -1 when the
+     * string does not begin with one. Equivalent to `^[a-zA-Z][a-zA-Z0-9+.\-]*:`
+     * and allocation-free.
+     */
+    private fun schemeEnd(url: String): Int {
+        if (url.isEmpty()) return -1
+        val first = url[0]
+        if (first !in 'a'..'z' && first !in 'A'..'Z') return -1
+        for (i in 1 until url.length) {
+            val c = url[i]
+            if (c == ':') return i
+            val ok = c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c == '+' || c == '-' || c == '.'
+            if (!ok) return -1
+        }
+        return -1
+    }
 
     /**
      * Origin (scheme://host[:port]) used as the key for site permissions.

@@ -54,10 +54,23 @@ object FaviconNaming {
     /**
      * Lower-cased first, so `Example.com` and `example.com` — the same host, and
      * the same icon — share one file instead of writing two.
+     *
+     * The digest is reused per thread rather than created per call.
+     * `MessageDigest.getInstance` is not a cheap constructor: it resolves the
+     * provider, instantiates the SPI object and allocates its padding and state
+     * buffers — several microseconds and half a dozen objects, every time. This
+     * runs once per stored icon and once per host looked up for the first time
+     * in a session, so on a long browsing session it was a few thousand of those
+     * for a hash of a 20-byte string. A `MessageDigest` is stateful and not
+     * thread safe, so one instance is kept per thread and [MessageDigest.reset]
+     * clears it before each use — the same pattern the formatters in
+     * [com.nexabrowser.app.util.DateLabels] use, and the digests it produces are
+     * byte-for-byte the ones it produced before.
      */
     private fun digestOf(host: String): String {
-        val bytes = MessageDigest.getInstance("SHA-256")
-            .digest(host.lowercase(Locale.ROOT).toByteArray(Charsets.UTF_8))
+        val digest: MessageDigest = sha256.get()
+        digest.reset()
+        val bytes = digest.digest(host.lowercase(Locale.ROOT).toByteArray(Charsets.UTF_8))
         val sb = StringBuilder(HEX_LENGTH)
         var i = 0
         while (sb.length < HEX_LENGTH && i < bytes.size) {
@@ -66,6 +79,18 @@ object FaviconNaming {
             i++
         }
         return sb.toString()
+    }
+
+    /**
+     * One SHA-256 digest per thread, reused in place. See [digestOf].
+     *
+     * A digest that is only ever touched through `reset()` and `digest()` on the
+     * thread that owns it cannot be observed half-updated by another thread, and
+     * `MessageDigest` is specified to be reset by `digest()` as well, so a call
+     * that fails in the middle cannot poison the next one.
+     */
+    private val sha256: ThreadLocal<MessageDigest> = object : ThreadLocal<MessageDigest>() {
+        override fun initialValue(): MessageDigest = MessageDigest.getInstance("SHA-256")
     }
 
     private val HEX = "0123456789abcdef".toCharArray()
