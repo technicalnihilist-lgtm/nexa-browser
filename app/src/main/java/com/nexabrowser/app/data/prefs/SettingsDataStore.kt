@@ -1,8 +1,10 @@
 package com.nexabrowser.app.data.prefs
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -15,8 +17,10 @@ import com.nexabrowser.app.domain.model.NewTabBehavior
 import com.nexabrowser.app.domain.model.SearchEngine
 import com.nexabrowser.app.domain.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import java.io.IOException
 
 /** Immutable snapshot of every user preference. Defaults are chosen to be safe. */
 data class BrowserSettings(
@@ -99,7 +103,32 @@ class DataStoreManager(private val context: Context) {
         val CORNERS = stringPreferencesKey("ext_corners")
     }
 
-    val settings: Flow<BrowserSettings> = context.dataStore.data.map { p ->
+    /**
+     * The stored preferences, or the defaults when the file cannot be read.
+     *
+     * DataStore throws [IOException] out of `data` when the preferences file is
+     * unreadable or corrupt — a write that was cut short by process death, a
+     * full data partition, a file damaged by a storage fault. Nothing caught
+     * that here, and the consequences were not local: the flow is collected by
+     * `BrowserViewModel` through `stateIn(viewModelScope, SharingStarted.Eagerly,
+     * …)`, so the exception cancelled that collector and then the whole
+     * viewModelScope — and `restoreSession()` reads the same flow through
+     * [current], so the session-restore coroutine died with it. The browser came
+     * up on defaults with no restored tabs and no way to change a preference,
+     * for the rest of the process's life.
+     *
+     * The documented fallback is applied instead: a corrupt file is reported and
+     * replaced by empty preferences, so every setting takes its default and the
+     * next preference write recreates the file. The user keeps a working browser
+     * rather than a dead one, and the app never crashes on a bad settings file.
+     */
+    val settings: Flow<BrowserSettings> = context.dataStore.data
+        .catch { failure ->
+            if (failure !is IOException) throw failure
+            Log.w(TAG, "Settings unreadable; falling back to defaults", failure)
+            emit(emptyPreferences())
+        }
+        .map { p ->
         BrowserSettings(
             searchEngineId = p[Keys.SEARCH_ENGINE] ?: SearchEngine.GOOGLE.id,
             customSearchUrl = p[Keys.CUSTOM_SEARCH] ?: "",
@@ -164,5 +193,9 @@ class DataStoreManager(private val context: Context) {
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)
+    }
+
+    private companion object {
+        const val TAG = "NexaSettings"
     }
 }

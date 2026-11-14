@@ -454,7 +454,15 @@ class BrowserTabManager(
             // Page extensions are still handled below, so toggling one takes
             // effect immediately as before.
             if (WebViewSettingsDiff.affectsWebView(previous, settings)) {
-                BrowserWebViewFactory.applySettings(tab.webView, settings, userAgentFor(tab, settings))
+                // Only the fields that changed are written. The snapshot used to
+                // be pushed whole, so one preference rewrote all twenty fields
+                // of every open tab; see WebViewSettingsDiff.changes.
+                BrowserWebViewFactory.applySettingsChanges(
+                    tab.webView,
+                    previous,
+                    settings,
+                    userAgentFor(tab, settings)
+                )
                 if (tab.info.url.isNotBlank()) applyDoNotTrack(tab)
             }
             // Re-apply page extensions so toggling one takes effect immediately.

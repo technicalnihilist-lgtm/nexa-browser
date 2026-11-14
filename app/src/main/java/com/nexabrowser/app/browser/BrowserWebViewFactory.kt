@@ -180,6 +180,46 @@ object BrowserWebViewFactory {
         }
     }
 
+    /**
+     * Pushes only the preferences that differ between [previous] and [settings].
+     *
+     * Every assignment below is a call into the WebView provider — for the user
+     * agent and the cookie manager, a round trip to another process — so writing
+     * all twenty of them for the one field that changed was pure waste. With ten
+     * tabs open, moving the text-zoom slider cost ten full snapshot writes; it
+     * now costs ten `textZoom` writes and nothing else. See
+     * [WebViewSettingsDiff.changes].
+     *
+     * A view that has never been configured ([previous] is null) is handed to
+     * [applySettings] instead, so the full block is written exactly as before.
+     */
+    @SuppressLint("SetJavaScriptEnabled")
+    fun applySettingsChanges(
+        webView: WebView,
+        previous: BrowserSettings?,
+        settings: BrowserSettings,
+        userAgent: String? = userAgentFor(settings.desktopSiteByDefault)
+    ) {
+        val changes = WebViewSettingsDiff.changes(previous, settings)
+        if (changes.everything) {
+            applySettings(webView, settings, userAgent)
+            return
+        }
+        if (!changes.any) return
+        val s = webView.settings
+        if (changes.javaScript) s.javaScriptEnabled = settings.javaScriptEnabled
+        if (changes.popups) s.javaScriptCanOpenWindowsAutomatically = settings.popupsEnabled
+        // The data saver is the only thing that decides whether images load.
+        if (changes.images) s.loadsImagesAutomatically = !settings.dataSaverEnabled
+        if (changes.textZoom) s.textZoom = settings.textZoom.coerceIn(50, 200)
+        if (changes.userAgent) s.userAgentString = userAgent
+        if (changes.cookies) {
+            runCatching {
+                CookieManager.getInstance().setAcceptThirdPartyCookies(webView, settings.cookiesEnabled)
+            }
+        }
+    }
+
     fun injectDoNotTrack(webView: WebView, enabled: Boolean) {
         if (enabled) webView.evaluateJavascript(DNT_SHIM, null)
     }
