@@ -154,6 +154,10 @@ class BrowserTabManager(
         }
         rendererVisible[id] = true
         val webView = tab.webView
+        // The first WebView to exist after a background trip is the only thing
+        // that can turn the process-wide timers back on when the Activity came
+        // back before any tab did. No-op in every other case.
+        resumeTimersIfPossible()
         if (url.isNullOrBlank()) {
             webView.loadUrl("about:blank")
         } else {
@@ -252,7 +256,70 @@ class BrowserTabManager(
         // process-wide switch the platform provides for exactly this moment, so
         // a backgrounded app costs no renderer CPU at all. Every WebView is
         // resumed individually in syncTabVisibility() when the app returns.
-        _tabs.value.firstOrNull { it.hasWebView }?.let { BrowserWebViewFactory.pauseTimers(it.webView) }
+        //
+        // The pause is recorded as well as performed, so that the resume below
+        // knows whether there is anything to undo. See [timersPaused].
+        if (!timersPaused) {
+            _tabs.value.firstOrNull { it.hasWebView }?.let {
+                BrowserWebViewFactory.pauseTimers(it.webView)
+                timersPaused = true
+            }
+        }
+        hostVisible = false
+    }
+
+    /**
+     * True while the process-wide renderer timers are paused because the host
+     * Activity is not on screen.
+     *
+     * Timer pause/resume acts on the whole process, not on one WebView, so this
+     * is process-wide state too — and it is the only record of it. Resuming used
+     * to be an unconditional `resumeTimers()` on whatever WebView happened to
+     * exist, which is wrong in both directions:
+     *
+     *  * When no WebView exists there was nothing to call it on and the call was
+     *    skipped, so the timers stayed paused for the life of the process. That
+     *    is reachable: leaving the app pauses the timers, the Activity is then
+     *    destroyed while the process is cached (a configuration change, or the
+     *    system reclaiming the window), `onCleared()` shuts the tab manager down
+     *    and destroys every WebView, and on return `onStart()` runs *before*
+     *    `restoreSession()` has created the first tab. The page that tab then
+     *    loads renders, but nothing on it animates and no `setTimeout`,
+     *    `setInterval` or `requestAnimationFrame` callback ever fires.
+     *  * When the timers were never paused — the ordinary first launch, where
+     *    `onStart()` follows `onCreate()` with nothing in the background yet —
+     *    the call was a no-op that still crossed into the renderer provider, on
+     *    the frame where the first page is trying to start.
+     *
+     * With the flag the resume runs only when there is something to undo, and
+     * the first WebView created after a background trip turns the timers back on
+     * itself (see [resumeTimersIfPossible]). Only read and written on the main
+     * thread.
+     */
+    private var timersPaused = false
+
+    /**
+     * Whether the host Activity is on screen.
+     *
+     * Only used to keep a WebView created during a background trip — a restored
+     * tab, a tab opened for a download — from resuming timers the platform is
+     * entitled to keep paused while nothing is visible.
+     */
+    private var hostVisible = true
+
+    /**
+     * Turns the process-wide timers back on, once, if this app paused them.
+     *
+     * A no-op in the ordinary case: [timersPaused] is false, so neither the tab
+     * walk nor the provider call happens. Called from [onHostStarted] and from
+     * the two places that build a WebView, because the WebView the resume needs
+     * may not exist yet when the host comes back.
+     */
+    private fun resumeTimersIfPossible() {
+        if (!timersPaused || !hostVisible) return
+        val live = _tabs.value.firstOrNull { it.hasWebView } ?: return
+        BrowserWebViewFactory.resumeTimers(live.webView)
+        timersPaused = false
     }
 
     /**
@@ -293,9 +360,12 @@ class BrowserTabManager(
 
     /** The host Activity is visible again: only the active tab resumes. */
     fun onHostStarted() {
+        hostVisible = true
         // Timer pause/resume acts on the whole process, so one live WebView is
-        // enough to turn timers back on for every tab.
-        _tabs.value.firstOrNull { it.hasWebView }?.let { BrowserWebViewFactory.resumeTimers(it.webView) }
+        // enough to turn timers back on for every tab. When there is no live
+        // WebView yet, the call is deferred to the first one created — which is
+        // what makes returning to a recreated Activity work at all.
+        resumeTimersIfPossible()
         if (_tabs.value.isNotEmpty()) syncTabVisibility()
     }
 
@@ -337,6 +407,11 @@ class BrowserTabManager(
             // for a tab that has no deferral or has already been loaded.
             if (visible) loadIfDeferred(tab)
         }
+        // The tab walk above is the one place every tab operation passes through
+        // — a restore, a new tab, a selection, a close — and it is the only thing
+        // that may have just built the WebView a deferred timer resume needs.
+        // See [resumeTimersIfPossible]; a no-op unless timers are actually paused.
+        resumeTimersIfPossible()
     }
 
     fun selectTab(id: String) {
@@ -916,6 +991,9 @@ class BrowserTabManager(
         // A freshly created WebView is running; syncTabVisibility() demotes it
         // again at once if this is a background tab.
         rendererVisible[tab.id] = true
+        // A rebuild can be the first WebView of a new Activity's tab manager,
+        // exactly like [createTabInternal]; see [resumeTimersIfPossible].
+        resumeTimersIfPossible()
 
         val updated = _tabs.value.toMutableList()
         updated[index] = fresh
@@ -1067,6 +1145,11 @@ class BrowserTabManager(
         faviconToken.clear()
         faviconSeen.clear()
         dntInjected.clear()
+        // The process-wide timer pause belongs to the process, not to this
+        // manager: a manager that shut down while the app was in the background
+        // must not leave the next one believing the timers are already running.
+        timersPaused = false
+        hostVisible = true
         scope.cancel()
     }
 
