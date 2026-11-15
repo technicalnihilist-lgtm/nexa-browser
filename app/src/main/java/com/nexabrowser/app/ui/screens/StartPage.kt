@@ -158,39 +158,62 @@ fun StartPage(
                         // light theme, i.e. an invisible clock. With no
                         // wallpaper the plain themed clock is drawn, which is
                         // what the page shows before a wallpaper is picked.
+                        // The time is formatted once per tick and both glass
+                        // layers draw the same string. It used to be formatted
+                        // separately for the rim and for the fill, so a clock
+                        // over a wallpaper ran `SimpleDateFormat.format` twice
+                        // every tick — and each call allocates its own
+                        // `StringBuffer`, `FieldPosition` and result string to
+                        // walk the same pattern over the same instant.
+                        val timeText = timeFmt.format(now)
                         if (bg != null) {
                             // Over a wallpaper the clock is drawn as translucent
                             // glass: a light rim plus a filled gradient.
+                            //
+                            // Both gradients are remembered. A `Brush` is an
+                            // immutable value, so the shader it describes is
+                            // identical for identical colours — but each call
+                            // allocated the brush, its colour list and its
+                            // float array, and this item recomposes on every
+                            // tick of the clock. [GlassSurface] already
+                            // remembers its brushes for exactly this reason;
+                            // the clock was the one place that still did not.
+                            val rimBrush = remember {
+                                Brush.verticalGradient(
+                                    listOf(Color(0x59FFFFFF), Color(0x22FFFFFF))
+                                )
+                            }
+                            val fillBrush = remember {
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color(0xF2FFFFFF),
+                                        Color(0x8CFFFFFF),
+                                        Color(0x66FFFFFF)
+                                    )
+                                )
+                            }
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
-                                    timeFmt.format(now),
+                                    timeText,
                                     style = TextStyle(
                                         fontSize = clockSize,
                                         fontWeight = FontWeight.Light,
-                                        brush = Brush.verticalGradient(
-                                            listOf(Color(0x59FFFFFF), Color(0x22FFFFFF))
-                                        ),
+                                        brush = rimBrush,
                                         drawStyle = Stroke(width = 2f)
                                     )
                                 )
                                 Text(
-                                    timeFmt.format(now),
+                                    timeText,
                                     style = TextStyle(
                                         fontSize = clockSize,
                                         fontWeight = FontWeight.Light,
-                                        brush = Brush.verticalGradient(
-                                            listOf(
-                                                Color(0xF2FFFFFF),
-                                                Color(0x8CFFFFFF),
-                                                Color(0x66FFFFFF)
-                                            )
-                                        )
+                                        brush = fillBrush
                                     )
                                 )
                             }
                         } else {
                             Text(
-                                timeFmt.format(now),
+                                timeText,
                                 style = MaterialTheme.typography.headlineSmall.copy(fontSize = clockSize),
                                 fontWeight = FontWeight.Light,
                                 color = MaterialTheme.colorScheme.onBackground
