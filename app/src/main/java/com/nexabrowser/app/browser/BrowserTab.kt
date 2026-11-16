@@ -2,11 +2,34 @@ package com.nexabrowser.app.browser
 
 import android.graphics.Bitmap
 import android.webkit.WebView
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Immutable, observable metadata for one tab. Never contains the WebView. */
+/**
+ * Immutable, observable metadata for one tab. Never contains the WebView.
+ *
+ * Marked [Immutable] for the Compose compiler, and it is the one annotation
+ * that matters most in this app's UI. Stability is inferred from the field
+ * types, and [favicon] is an `android.graphics.Bitmap` — a type from another
+ * module, so the compiler can only call it unstable, which makes `TabInfo`
+ * unstable, which makes `List<TabInfo>` unstable. Every composable that takes
+ * either one therefore had to be recomposed whenever *anything* in the tab
+ * list changed: a title arriving for a background tab, a batch publish of two
+ * background progress ticks, a favicon landing on a tab nobody is looking at.
+ * The address bar, the browser screen, the tab overview and every row of the
+ * tab strip were all redrawn for a value none of them draws differently.
+ *
+ * With the annotation Compose compares the argument instead of its type, and
+ * `TabInfo` is a data class over immutable fields, so the comparison is exact:
+ * the rows of tabs that did not change are skipped and only the one that did is
+ * redrawn. Nothing user-visible changes — the same fields reach the same
+ * composables, and the equal-but-not-identical snapshots that
+ * [TabChromeState] produces across a progress tick are now skipped instead of
+ * recomposed.
+ */
+@Immutable
 data class TabInfo(
     val id: String,
     val title: String,

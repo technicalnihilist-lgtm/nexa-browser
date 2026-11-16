@@ -56,9 +56,28 @@ class BrowserTabManager(
      */
     private val byId = TabLookup<BrowserTab>()
 
+    /**
+     * id -> position in the published tab-info list, kept in step with [_tabs]
+     * by [setTabs].
+     *
+     * [publishInfo] has to find the one entry it is replacing. It did that with
+     * `indexOfFirst { it.id == tab.id }`, i.e. a linear scan of the published
+     * list, on every WebView event of the tab on screen — progress ticks,
+     * titles, url changes, favicon, navigation state, dozens per page load — on
+     * the main thread, inside the callback the renderer is waiting on. The scan
+     * is O(tabs), so the cost grew with the number of tabs open in exactly the
+     * situation where the main thread is busiest. The order of [_tabInfos] is
+     * the order of [_tabs], so the position is known when the list is built:
+     * one pass per structural change (a tab added, closed, reordered or
+     * restored) turns every later publish into a single hash lookup.
+     */
+    private val infoIndex = HashMap<String, Int>(16)
+
     /** Publishes a new tab list and re-indexes it in one step. */
     private fun setTabs(tabs: List<BrowserTab>) {
         byId.setAll(tabs) { it.id }
+        infoIndex.clear()
+        tabs.forEachIndexed { position, tab -> infoIndex[tab.id] = position }
         _tabs.value = tabs
     }
 
@@ -1075,8 +1094,13 @@ class BrowserTabManager(
     private fun publishInfo(tab: BrowserTab) {
         val info = tab.info
         val current = _tabInfos.value
-        val index = current.indexOfFirst { it.id == tab.id }
-        if (index < 0) {
+        // One hash lookup instead of a scan of the published list; see
+        // [infoIndex]. A position that does not address this tab — the table
+        // and the published list can only disagree if a structural change is in
+        // flight — falls back to the full rebuild rather than publishing a
+        // wrong entry in the wrong place.
+        val index = infoIndex[tab.id] ?: -1
+        if (index < 0 || index >= current.size || current[index].id != tab.id) {
             publishInfos()
             return
         }
@@ -1133,6 +1157,7 @@ class BrowserTabManager(
         _tabs.value.forEach { runCatching { it.destroy() } }
         setTabs(emptyList())
         _tabInfos.value = emptyList()
+        infoIndex.clear()
         _activeTabId.value = null
         lastProgress.clear()
         stoppedLoads.clear()
