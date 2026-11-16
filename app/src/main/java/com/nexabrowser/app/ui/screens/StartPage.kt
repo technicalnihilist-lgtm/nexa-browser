@@ -57,6 +57,7 @@ import com.nexabrowser.app.ui.components.CachedFavicon
 import com.nexabrowser.app.ui.theme.NexaIcons
 import com.nexabrowser.app.ui.theme.GlassSurface
 import com.nexabrowser.app.ui.theme.LocalNexaColors
+import com.nexabrowser.app.util.ClockTick
 import com.nexabrowser.app.util.UrlUtils
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -118,12 +119,22 @@ fun StartPage(
     // user left hours ago. Tying the loop to RESUMED stops that, and the first
     // tick on return re-reads the time, so the clock is never stale when it is
     // visible.
+    //
+    // The period is no longer a flat 30 seconds. The clock draws `h:mm`, so a
+    // fixed half-minute period redrew it twice per displayed minute — the second
+    // tick rebuilt the `Date`, ran `SimpleDateFormat.format` and recomposed both
+    // `Text` nodes for a string that had not changed — and, because the loop
+    // starts at an arbitrary phase, the tick that crosses a minute boundary
+    // could land up to 30 seconds late, so the clock read a minute behind the
+    // device. Sleeping until just past the next minute boundary costs one
+    // wake-up and one recomposition per displayed minute, and the minute is
+    // right within a fraction of a second. See [ClockTick].
     LaunchedEffect(showClock, lifecycleOwner) {
         if (!showClock) return@LaunchedEffect
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 now = Date()
-                delay(30_000)
+                delay(ClockTick.delayToNextMinute(System.currentTimeMillis()))
             }
         }
     }

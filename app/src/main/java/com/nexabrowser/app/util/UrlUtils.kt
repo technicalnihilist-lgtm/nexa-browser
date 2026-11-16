@@ -51,6 +51,20 @@ object UrlUtils {
     fun isHttps(url: String): Boolean = url.startsWith(HTTPS_SCHEME, ignoreCase = true)
 
     /**
+     * True for a plaintext `http:` url.
+     *
+     * The address bar used `url.startsWith("http://")` for this, which is
+     * case-sensitive — while [isHttps], right beside it, is not. A url written
+     * `HTTP://example.com` is exactly what [HttpsUpgrade] exists to deal with,
+     * so such urls do reach the bar, and they fell through both tests: not
+     * secure, and not recognised as cleartext either. The bar then drew the
+     * secure padlock (the `else` branch) for a page served over plain http.
+     *
+     * Compares in place and allocates nothing, like its two neighbours.
+     */
+    fun isCleartextHttp(url: String): Boolean = url.startsWith(HTTP_SCHEME, ignoreCase = true)
+
+    /**
      * Scheme of [url] in lower case, or "" when there is none.
      *
      * This used to run the `SCHEME_RE` regular expression over the whole url and

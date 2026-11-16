@@ -88,6 +88,24 @@ class UrlUtilsTest {
     }
 
     @Test
+    fun `cleartext http is recognised whatever the case of its scheme`() {
+        // The address bar drew a secure padlock for `HTTP://…` because it tested
+        // the scheme with a case-sensitive startsWith while `isHttps` beside it
+        // was case-insensitive, so such a url matched neither.
+        assertThat(UrlUtils.isCleartextHttp("http://a.com")).isTrue()
+        assertThat(UrlUtils.isCleartextHttp("HTTP://a.com")).isTrue()
+        assertThat(UrlUtils.isCleartextHttp("HtTp://a.com")).isTrue()
+        assertThat(UrlUtils.isCleartextHttp("https://a.com")).isFalse()
+        assertThat(UrlUtils.isCleartextHttp("HTTPS://a.com")).isFalse()
+        assertThat(UrlUtils.isCleartextHttp("a.com")).isFalse()
+        assertThat(UrlUtils.isCleartextHttp("")).isFalse()
+        // A cleartext url is never reported as secure, and vice versa.
+        for (url in listOf("http://a.com", "HTTP://a.com", "https://a.com", "HTTPS://a.com")) {
+            assertThat(UrlUtils.isCleartextHttp(url) && UrlUtils.isHttps(url)).isFalse()
+        }
+    }
+
+    @Test
     fun `display url hides the https scheme but keeps http visible`() {
         assertThat(UrlUtils.displayUrl("https://example.com/x")).isEqualTo("example.com/x")
         assertThat(UrlUtils.displayUrl("http://example.com/x")).isEqualTo("http://example.com/x")

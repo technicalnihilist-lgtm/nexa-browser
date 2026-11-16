@@ -96,12 +96,14 @@ object AdBlocker {
     /**
      * Host → blocked decisions, consulted for every subresource on the network
      * threads. This used to be a synchronised LinkedHashMap, so every request in
-     * flight serialised on one monitor; a ConcurrentHashMap answers reads without
-     * locking at all. The table is simply dropped when it grows past its bound —
-     * rebuilding a few hundred entries is far cheaper than maintaining LRU order
-     * under contention.
+     * flight serialised on one monitor; the table answers reads without locking
+     * at all. It is bounded and self-evicting — see [HostDecisionCache] for why
+     * the bound is now met by rolling generations over instead of by emptying
+     * the table, which threw away the handful of hosts a page re-requests on
+     * every navigation at exactly the moment it had filled up with one-shot
+     * tracker subdomains.
      */
-    private val decisions = java.util.concurrent.ConcurrentHashMap<String, Boolean>(512)
+    private val decisions = HostDecisionCache()
 
     fun isBlocked(host: String?): Boolean {
         if (host.isNullOrBlank()) return false
@@ -116,11 +118,10 @@ object AdBlocker {
         // than calling it unconditionally — it avoids the locale plumbing for
         // the answer "nothing to do".
         val h = if (host.hasAsciiUpper()) host.lowercase(Locale.ROOT) else host
-        decisions[h]?.let { return it }
+        decisions.get(h)?.let { return it }
 
         val blocked = computeBlocked(h)
-        if (decisions.size >= MAX_CACHED_DECISIONS) decisions.clear()
-        decisions[h] = blocked
+        decisions.put(h, blocked)
         return blocked
     }
 
@@ -174,7 +175,6 @@ object AdBlocker {
         override fun close() = Unit
     }
 
-    private const val MAX_CACHED_DECISIONS = 1024
 
 
     private fun String.hasAsciiUpper(): Boolean {

@@ -73,7 +73,13 @@ fun AddressBar(
     val contentColor = barContentColor(style)
     val secondaryColor = barSecondaryColor(style)
     val isSecure = UrlUtils.isHttps(rawUrl)
-    val isHttp = rawUrl.startsWith("http://")
+    // Case-insensitive, like isSecure above. The old `startsWith("http://")`
+    // missed `HTTP://…`, so a cleartext page whose scheme was written in upper
+    // case fell through to the `else` branch below and was drawn with the
+    // secure padlock — on the one url the force-HTTPS rewrite deliberately
+    // handles. Nothing about the layout or the icon set changes; the bar just
+    // picks the icon that matches the connection.
+    val isHttp = UrlUtils.isCleartextHttp(rawUrl)
     val isPrivate = tab?.isPrivate == true
 
     BarSurface(
