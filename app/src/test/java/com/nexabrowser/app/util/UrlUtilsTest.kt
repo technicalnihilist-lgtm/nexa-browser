@@ -271,4 +271,74 @@ class UrlUtilsTest {
         assertThat(UrlUtils.resolveInput("HTTP://example.com/x", google))
             .isEqualTo("HTTP://example.com/x")
     }
+
+    // The three host patterns that used to decide whether the address-bar text
+    // is a URL are now in-place scans (see UrlUtils.isDomainName and friends).
+    // These cases pin down that the answers did not move with them.
+
+    @Test
+    fun `domain shapes the pattern accepted are still accepted`() {
+        assertThat(UrlUtils.resolveInput("a.bc", google)).isEqualTo("https://a.bc")
+        assertThat(UrlUtils.resolveInput("my-site.co.uk", google)).isEqualTo("https://my-site.co.uk")
+        assertThat(UrlUtils.resolveInput("sub.domain.example.com", google))
+            .isEqualTo("https://sub.domain.example.com")
+        assertThat(UrlUtils.resolveInput("EXAMPLE.COM", google)).isEqualTo("https://EXAMPLE.COM")
+        assertThat(UrlUtils.resolveInput("example.com:8443", google))
+            .isEqualTo("https://example.com:8443")
+    }
+
+    @Test
+    fun `domain shapes the pattern rejected are still rejected`() {
+        // Empty label, trailing dot, hyphen at an edge, numeric TLD, short TLD.
+        assertThat(UrlUtils.resolveInput("a..com", google)).isEqualTo(UrlUtils.searchUrl("a..com", google))
+        assertThat(UrlUtils.resolveInput("example.com.", google))
+            .isEqualTo(UrlUtils.searchUrl("example.com.", google))
+        assertThat(UrlUtils.resolveInput("-example.com", google))
+            .isEqualTo(UrlUtils.searchUrl("-example.com", google))
+        assertThat(UrlUtils.resolveInput("example.123", google))
+            .isEqualTo(UrlUtils.searchUrl("example.123", google))
+        assertThat(UrlUtils.resolveInput("example.c", google))
+            .isEqualTo(UrlUtils.searchUrl("example.c", google))
+    }
+
+    @Test
+    fun `an out of range address is searched for, not loaded`() {
+        // The pattern behind this was `\d{1,3}(\.\d{1,3}){3}`, which accepted
+        // 999.1.1.1: the bar navigated to a host that cannot exist instead of
+        // searching, so the user got a load error for a typo.
+        assertThat(UrlUtils.resolveInput("999.1.1.1", google))
+            .isEqualTo(UrlUtils.searchUrl("999.1.1.1", google))
+        assertThat(UrlUtils.resolveInput("192.168.1.256", google))
+            .isEqualTo(UrlUtils.searchUrl("192.168.1.256", google))
+        // The boundary values are still addresses.
+        assertThat(UrlUtils.resolveInput("255.255.255.255", google))
+            .isEqualTo("http://255.255.255.255")
+        assertThat(UrlUtils.resolveInput("0.0.0.0", google)).isEqualTo("http://0.0.0.0")
+        // Four octets are required, and a trailing dot is not one.
+        assertThat(UrlUtils.resolveInput("1.2.3", google)).isEqualTo(UrlUtils.searchUrl("1.2.3", google))
+        assertThat(UrlUtils.resolveInput("1.2.3.4.5", google))
+            .isEqualTo(UrlUtils.searchUrl("1.2.3.4.5", google))
+    }
+
+    @Test
+    fun `localhost is matched in any case and only exactly`() {
+        assertThat(UrlUtils.resolveInput("LOCALHOST:3000", google)).isEqualTo("http://LOCALHOST:3000")
+        assertThat(UrlUtils.resolveInput("localhost", google)).isEqualTo("http://localhost")
+        assertThat(UrlUtils.resolveInput("localhost.example.com", google))
+            .isEqualTo("https://localhost.example.com")
+        assertThat(UrlUtils.resolveInput("mylocalhost", google))
+            .isEqualTo(UrlUtils.searchUrl("mylocalhost", google))
+    }
+
+    @Test
+    fun `host and port shapes resolve to the right scheme`() {
+        assertThat(UrlUtils.resolveInput("127.0.0.1:8080", google)).isEqualTo("http://127.0.0.1:8080")
+        assertThat(UrlUtils.resolveInput("example.com/path?x=1#frag", google))
+            .isEqualTo("https://example.com/path?x=1#frag")
+        // A port that is not all digits is not a host:port pair, so the prefix
+        // is read as a scheme and the text is passed through as typed — the
+        // behaviour before the scan replaced the patterns, kept as it was.
+        assertThat(UrlUtils.resolveInput("example.com:http", google))
+            .isEqualTo("example.com:http")
+    }
 }

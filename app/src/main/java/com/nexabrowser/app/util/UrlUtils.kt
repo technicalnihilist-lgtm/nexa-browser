@@ -10,11 +10,6 @@ import java.util.Locale
  */
 object UrlUtils {
 
-    private val DOMAIN_RE = Regex("^([a-zA-Z0-9]([a-zA-Z0-9\\-]*[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,}$")
-    private val IPV4_RE = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
-    private val LOCALHOST_RE = Regex("^localhost$", RegexOption.IGNORE_CASE)
-    private val HOST_PORT_RE = Regex("^[a-zA-Z0-9.\\-]+:\\d{1,5}$")
-
     private const val HTTP_SCHEME = "http://"
     private const val HTTPS_SCHEME = "https://"
 
@@ -268,26 +263,156 @@ object UrlUtils {
         val input = raw.trim()
         if (input.isEmpty()) return ""
 
-        val authority = input.substringBefore('/').substringBefore('?').substringBefore('#')
-        val host = authority.substringBefore(':')
+        // The authority is read by index, not by string surgery. This used to be
+        // `substringBefore('/').substringBefore('?').substringBefore('#')` plus
+        // `substringBefore(':')` — five fresh strings for a url that is often a
+        // few hundred characters long, on every address-bar submit — and then up
+        // to twelve `Regex.matches` calls, each of which allocates a `Matcher`,
+        // its match state and its group-offset array before it answers.
+        // Everything below now scans the one `input` string in place, so a submit
+        // allocates nothing until the single result string is built. See
+        // [isDomainName], [isIpv4Literal] and [isLocalhost].
+        val authorityEnd = firstIndexOf(input, 0, '/', '?', '#')
+        val hostEnd = indexOfChar(input, ':', 0, authorityEnd).let { if (it < 0) authorityEnd else it }
 
         // "localhost:8080" looks like a scheme followed by a path, but it is a
         // host and port. Only treat the prefix as a scheme when it is not one.
-        val looksLikeHostPort = authority.contains(':') &&
-            authority.substringAfter(':').all { it.isDigit() } &&
-            (DOMAIN_RE.matches(host) || IPV4_RE.matches(host) || LOCALHOST_RE.matches(host))
+        // The port has to be all digits for that to be true, and the part before
+        // it has to be something a browser can actually connect to.
+        val looksLikeHostPort = hostEnd < authorityEnd &&
+            allDigits(input, hostEnd + 1, authorityEnd) &&
+            (isDomainName(input, 0, hostEnd) || isIpv4Literal(input, 0, hostEnd) ||
+                isLocalhost(input, 0, hostEnd))
 
         val scheme = schemeOf(input)
         if (scheme.isNotEmpty() && !looksLikeHostPort) return input
 
         if (input.any { it.isWhitespace() }) return searchUrl(input, queryTemplate)
 
-        if (IPV4_RE.matches(host) || LOCALHOST_RE.matches(host)) return "http://$input"
-        if (DOMAIN_RE.matches(host)) return "https://$input"
-        if (HOST_PORT_RE.matches(authority) && (DOMAIN_RE.matches(host) || IPV4_RE.matches(host) || LOCALHOST_RE.matches(host))) {
-            return "https://$input"
-        }
+        if (isIpv4Literal(input, 0, hostEnd) || isLocalhost(input, 0, hostEnd)) return "http://$input"
+        if (isDomainName(input, 0, hostEnd)) return "https://$input"
+        // The old `HOST_PORT_RE` branch that stood here could never be reached:
+        // it required the same three host tests that the two lines above already
+        // answered negatively. A `host:port` that is not a domain, an IPv4
+        // literal or localhost is a search, which is what falls out below.
         return searchUrl(input, queryTemplate)
+    }
+
+    /**
+     * Host classification without a regular expression.
+     *
+     * The three patterns that used to live here were evaluated up to twelve
+     * times per address-bar submit, and each evaluation allocated a `Matcher`,
+     * a match state and a group-offset array. They are now plain scans over the
+     * one input string, with the same answers:
+     *
+     *  * [isDomainName] is `^([a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`
+     *    — one or more dot-terminated labels that start and end alphanumeric,
+     *    then a TLD of at least two letters. A trailing dot, an empty label
+     *    (`a..com`) and a numeric TLD all fail, exactly as before.
+     *  * [isIpv4Literal] is `^\d{1,3}(\.\d{1,3}){3}$`, and it additionally
+     *    requires every octet to be ≤ 255. The pattern accepted `999.1.1.1`,
+     *    so typing an out-of-range address in the bar navigated to
+     *    `http://999.1.1.1` — a load that can only fail — instead of searching
+     *    for it, which is the only useful answer for something that is not an
+     *    address.
+     *  * [isLocalhost] is `^localhost$` with IGNORE_CASE.
+     */
+    private fun isDomainName(s: String, from: Int, to: Int): Boolean {
+        // "a.bc" is the shortest possible match: two labels, a two-letter TLD.
+        if (to - from < 4) return false
+        var labelStart = from
+        var dots = 0
+        var i = from
+        while (i <= to) {
+            if (i == to || s[i] == '.') {
+                val length = i - labelStart
+                if (length == 0) return false
+                if (i == to) {
+                    // The TLD: letters only, at least two of them.
+                    if (length < 2) return false
+                    for (j in labelStart until to) {
+                        val c = s[j]
+                        if (!isAsciiLetter(c)) return false
+                    }
+                    return dots >= 1
+                }
+                // Every other label starts and ends alphanumeric; a hyphen may
+                // only appear inside it.
+                if (!isAsciiAlphanumeric(s[labelStart])) return false
+                if (!isAsciiAlphanumeric(s[i - 1])) return false
+                for (j in labelStart + 1 until i - 1) {
+                    val c = s[j]
+                    if (!isAsciiAlphanumeric(c) && c != '-') return false
+                }
+                dots++
+                labelStart = i + 1
+            }
+            i++
+        }
+        return false
+    }
+
+    /** `dotted.quad` of decimal octets, each 1–3 digits and 0–255. */
+    private fun isIpv4Literal(s: String, from: Int, to: Int): Boolean {
+        var groups = 0
+        var i = from
+        while (i < to) {
+            var value = 0
+            var digits = 0
+            while (i < to && s[i] in '0'..'9') {
+                if (digits == 3) return false
+                value = value * 10 + (s[i] - '0')
+                digits++
+                i++
+            }
+            if (digits == 0 || value > 255) return false
+            groups++
+            if (i == to) break
+            if (s[i] != '.') return false
+            i++
+            // A trailing dot is not part of a dotted quad.
+            if (i == to) return false
+        }
+        return groups == 4
+    }
+
+    /** `localhost`, in any case. */
+    private fun isLocalhost(s: String, from: Int, to: Int): Boolean {
+        if (to - from != 9) return false
+        val expected = "localhost"
+        for (i in 0 until 9) {
+            val c = s[from + i]
+            val lower = if (c in 'A'..'Z') c + 32 else c
+            if (lower != expected[i]) return false
+        }
+        return true
+    }
+
+    private fun isAsciiLetter(c: Char): Boolean = c in 'a'..'z' || c in 'A'..'Z'
+
+    private fun isAsciiAlphanumeric(c: Char): Boolean = isAsciiLetter(c) || c in '0'..'9'
+
+    /** True when every character in [from, to) is a digit; false when empty. */
+    private fun allDigits(s: String, from: Int, to: Int): Boolean {
+        if (from >= to) return false
+        for (i in from until to) if (s[i] !in '0'..'9') return false
+        return true
+    }
+
+    /** Index of the first of [a], [b] or [c] at or after [from], or [to]. */
+    private fun firstIndexOf(s: String, from: Int, a: Char, b: Char, c: Char): Int {
+        for (i in from until s.length) {
+            val ch = s[i]
+            if (ch == a || ch == b || ch == c) return i
+        }
+        return s.length
+    }
+
+    /** Index of [ch] in [from, to), or -1. */
+    private fun indexOfChar(s: String, ch: Char, from: Int, to: Int): Int {
+        for (i in from until to) if (s[i] == ch) return i
+        return -1
     }
 
     /**

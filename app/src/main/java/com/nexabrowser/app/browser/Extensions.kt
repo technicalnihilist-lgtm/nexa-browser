@@ -331,18 +331,58 @@ object LinkCleaner {
         "ref_src", "ref_url", "spm", "scm"
     )
 
+    /**
+     * Removes the tracking parameters from [url], leaving the rest byte for byte
+     * as it was.
+     *
+     * One pass over the raw query, and the surviving pairs are copied through
+     * unencoded. The old version asked the `Uri` for its parameter names, then
+     * called `getQueryParameters(name)` for each survivor — which re-parses the
+     * whole query string once per parameter — and re-appended the *decoded*
+     * values through `appendQueryParameter`, re-encoding them. That round trip
+     * could change what a server receives (a `+` in a search term came back as
+     * `%20`, a `%2F` in a path parameter could be normalised) on a url the user
+     * was about to load. Copying the raw pairs cannot alter a surviving value.
+     *
+     * It also fixes the shape of the result when *every* parameter was tracking,
+     * which is the common case for a shared link: `clearQuery()` on a builder
+     * leaves a bare `?` behind the path, so
+     * `https://x.com/a?utm_source=t&fbclid=1` cleaned to `https://x.com/a?`.
+     * Some sites answer that differently from `/a`, and it is what the user then
+     * saw in the address bar and shared again.
+     */
     fun clean(url: String): String {
         if (url.isBlank() || !url.contains('?')) return url
         return runCatching {
             val uri = Uri.parse(url)
-            val names = uri.queryParameterNames
-            val kept = names.filterNot { it.lowercase(Locale.ROOT) in trackingParams }
-            if (kept.size == names.size) return url
-            val builder = uri.buildUpon().clearQuery()
-            kept.forEach { name ->
-                uri.getQueryParameters(name).forEach { value -> builder.appendQueryParameter(name, value) }
+            val query = uri.encodedQuery ?: return url
+            val parts = query.split('&')
+            val kept = ArrayList<String>(parts.size)
+            var removed = false
+            for (part in parts) {
+                if (part.isEmpty()) continue
+                val eq = part.indexOf('=')
+                val name = Uri.decode(if (eq < 0) part else part.substring(0, eq))
+                if (name.lowercase(Locale.ROOT) in trackingParams) {
+                    removed = true
+                    continue
+                }
+                kept.add(part)
             }
-            builder.build().toString()
+            // Nothing was a tracking parameter: hand back the url untouched,
+            // rather than a rebuilt string that happens to be equal.
+            if (!removed) return url
+            if (kept.isEmpty()) {
+                val q = url.indexOf('?')
+                val hash = url.indexOf('#', q + 1)
+                return if (hash >= 0) url.substring(0, q) + url.substring(hash) else url.substring(0, q)
+            }
+            val rebuilt = StringBuilder(query.length)
+            for (part in kept) {
+                if (rebuilt.isNotEmpty()) rebuilt.append('&')
+                rebuilt.append(part)
+            }
+            uri.buildUpon().clearQuery().encodedQuery(rebuilt.toString()).build().toString()
         }.getOrDefault(url)
     }
 }
