@@ -108,31 +108,93 @@ object FaviconPruning {
  */
 object FaviconPathCache {
 
-    private val known = ConcurrentHashMap<String, Boolean>(64)
+    /**
+     * The current generation of remembered paths.
+     *
+     * The memo used to be one map that was *emptied* when it reached its bound.
+     * That throws the whole table away at the moment it is most valuable: the
+     * paths it holds are the icons of the rows currently on screen, and every
+     * entry dropped is a `stat()` on the main thread from composition the next
+     * time that row is drawn. Scrolling a long history or bookmark list crosses
+     * the bound regularly, and each rollover therefore cost a burst of disk
+     * syscalls inside the frame loop — for rows the user was looking at.
+     *
+     * Two generations instead of one, exactly as [com.nexabrowser.app.browser.HostDecisionCache]
+     * does for the ad blocker's host table: new answers go into the young table,
+     * and when it fills it becomes the old one and a fresh young table starts.
+     * A lookup checks young, then old, so nothing that was hot in the last
+     * generation is lost at a rollover — it is only lost when the generation
+     * *after* that rolls over. The bound is unchanged at 2 x [GENERATION_SIZE],
+     * i.e. the same 512 paths the single map held before.
+     *
+     * Volatile because a rollover swaps the references while other threads (the
+     * IO dispatcher writes through [markStored]) are reading them; a thread that
+     * reads the previous reference for one more lookup simply gets a table that
+     * is still a valid generation.
+     */
+    @Volatile
+    private var young: ConcurrentHashMap<String, Boolean> = ConcurrentHashMap(GENERATION_SIZE)
+
+    /** The previous generation, kept readable so a rollover is not a cliff. */
+    @Volatile
+    private var old: ConcurrentHashMap<String, Boolean> = ConcurrentHashMap(GENERATION_SIZE)
+
+    /** Number of paths held across both generations, at most 2 x [GENERATION_SIZE]. */
+    val size: Int get() = young.size + old.size
 
     /** True when [path] is a file that exists. Never touches the disk twice. */
     fun exists(path: String?): Boolean {
         if (path.isNullOrBlank()) return false
-        known[path]?.let { return it }
+        young[path]?.let { return it }
+        old[path]?.let { return it }
         val exists = runCatching { File(path).let { it.isFile && it.length() > 0 } }.getOrDefault(false)
-        if (known.size >= MAX_ENTRIES) known.clear()
-        known[path] = exists
+        remember(path, exists)
         return exists
     }
 
     /** Called by the store once it has written [path]. */
     fun markStored(path: String) {
-        if (known.size >= MAX_ENTRIES) known.clear()
-        known[path] = true
+        remember(path, true)
     }
 
     fun forget(path: String?) {
-        if (path != null) known.remove(path)
+        if (path == null) return
+        young.remove(path)
+        old.remove(path)
     }
 
-    fun clear() = known.clear()
+    fun clear() {
+        young.clear()
+        old.clear()
+    }
 
-    private const val MAX_ENTRIES = 512
+    /**
+     * Remembers [path] in the young generation, rolling over first when it is
+     * full so that the previous generation is never dropped in place.
+     */
+    private fun remember(path: String, value: Boolean) {
+        if (young.size >= GENERATION_SIZE) rollOver()
+        young[path] = value
+    }
+
+    /**
+     * Retires the young generation and starts a fresh one.
+     *
+     * Synchronised because two threads can reach the bound at the same time: a
+     * single rollover must retire one generation, not two. The reads above stay
+     * lock-free.
+     */
+    private fun rollOver() {
+        synchronized(this) {
+            // Another thread may have rolled over while this one waited.
+            if (young.size < GENERATION_SIZE) return
+            old = young
+            young = ConcurrentHashMap(GENERATION_SIZE)
+        }
+    }
+
+    /** Paths per generation; the total bound is twice this. */
+    private const val GENERATION_SIZE = 256
 }
 
 /**

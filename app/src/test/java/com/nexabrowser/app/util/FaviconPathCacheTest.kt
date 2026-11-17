@@ -71,6 +71,43 @@ class FaviconPathCacheTest {
         assertThat(FaviconPathCache.exists(icon.absolutePath)).isTrue()
     }
 
+    /**
+     * The memo keeps two generations rather than emptying itself when it fills.
+     *
+     * 300 paths is past the 256-entry generation, so at least one rollover has
+     * happened by the end. Every one of them must still be remembered: the rows
+     * these paths belong to are the ones on screen, and a forgotten path is a
+     * `stat()` on the main thread the next time that row is drawn.
+     */
+    @Test
+    fun `a rollover does not forget the paths that were already remembered`() {
+        val paths = (1..300).map { File(folder.root, "icon-$it.png").absolutePath }
+        paths.forEach { FaviconPathCache.markStored(it) }
+
+        assertThat(paths.count { FaviconPathCache.exists(it) }).isEqualTo(300)
+    }
+
+    /** The bound is unchanged by the rollover: two generations, 512 paths. */
+    @Test
+    fun `the memo stays bounded across many rollovers`() {
+        repeat(1_000) { FaviconPathCache.markStored(File(folder.root, "p$it.png").absolutePath) }
+
+        assertThat(FaviconPathCache.size).isAtMost(512)
+    }
+
+    /** A path that has aged into the older generation is still forgettable. */
+    @Test
+    fun `forget reaches a path that has aged into the older generation`() {
+        val aged = File(folder.root, "aged.png").absolutePath
+        FaviconPathCache.markStored(aged)
+        repeat(300) { FaviconPathCache.markStored(File(folder.root, "filler-$it.png").absolutePath) }
+
+        // Still remembered after the rollover, then forgotten on request.
+        assertThat(FaviconPathCache.exists(aged)).isTrue()
+        FaviconPathCache.forget(aged)
+        assertThat(FaviconPathCache.exists(aged)).isFalse()
+    }
+
     @Test
     fun `clear drops every remembered answer`() {
         val icon = folder.newFile("gone.png")
