@@ -78,6 +78,63 @@ class PageInjectionsTest {
         assertThat(PageInjections.cssFor(two)).isEqualTo("a{color:green}")
     }
 
+    // ---------------------------------------------------------------- pageScript
+
+    @Test
+    fun `the stylesheet alone is the script it always was`() {
+        assertThat(PageInjections.pageScript("body{color:red}", doNotTrack = false))
+            .isEqualTo(PageInjections.applyScript("body{color:red}"))
+    }
+
+    @Test
+    fun `removing the stylesheet is the clear script it always was`() {
+        assertThat(PageInjections.pageScript(null, doNotTrack = false))
+            .isEqualTo(PageInjections.clearScript())
+    }
+
+    @Test
+    fun `the shim alone is the do not track script`() {
+        assertThat(PageInjections.pageScript("", doNotTrack = true))
+            .isEqualTo(PageInjections.DNT_SCRIPT)
+    }
+
+    @Test
+    fun `nothing to deliver builds nothing`() {
+        assertThat(PageInjections.pageScript("", doNotTrack = false)).isEmpty()
+        assertThat(PageInjections.pageScript("   ", doNotTrack = false)).isEmpty()
+    }
+
+    @Test
+    fun `both extensions are delivered as one script`() {
+        val script = PageInjections.pageScript("body{color:red}", doNotTrack = true)
+        // One IIFE, so one evaluateJavascript call carries both effects.
+        assertThat(script).startsWith("(function(){")
+        assertThat(script).endsWith("})();")
+        assertThat(script.split("(function(){")).hasSize(2)
+        // The shim defines the signal...
+        assertThat(script).contains("navigator,'doNotTrack'")
+        // ...and the stylesheet still installs and fills the style element.
+        assertThat(script).contains("nexa-extension-style")
+        assertThat(script).contains("el.textContent='body{color:red}';")
+    }
+
+    @Test
+    fun `a cleared stylesheet and the shim are also one script`() {
+        val script = PageInjections.pageScript(null, doNotTrack = true)
+        assertThat(script.split("(function(){")).hasSize(2)
+        assertThat(script).contains("navigator,'doNotTrack'")
+        assertThat(script).contains("removeChild(el)")
+        // Clearing must not also try to fill the element it just removed.
+        assertThat(script).doesNotContain("textContent")
+    }
+
+    @Test
+    fun `a stylesheet is escaped in the combined script too`() {
+        val script = PageInjections.pageScript("a[href^='x']{content:\"q\\q\"}", doNotTrack = true)
+        assertThat(script).contains("a[href^=\\'x\\']")
+        assertThat(script).contains("q\\\\q")
+    }
+
     @Test
     fun `switching every extension off clears a previously built stylesheet`() {
         PageInjections.cssFor(base.copy(darkPagesEnabled = true, customCssEnabled = true, customCss = "a{}"))

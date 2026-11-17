@@ -56,11 +56,6 @@ object BrowserWebViewFactory {
     const val DESKTOP_UA =
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
-    /** Runs the JS shim that exposes a Do Not Track signal to page scripts. */
-    private const val DNT_SHIM =
-        "(function(){try{Object.defineProperty(navigator,'doNotTrack',{get:function(){return '1'},configurable:true});" +
-            "Object.defineProperty(navigator,'msDoNotTrack',{get:function(){return '1'},configurable:true});}catch(e){}})();"
-
     @SuppressLint("SetJavaScriptEnabled")
     fun create(
         context: Context,
@@ -221,7 +216,7 @@ object BrowserWebViewFactory {
     }
 
     fun injectDoNotTrack(webView: WebView, enabled: Boolean) {
-        if (enabled) webView.evaluateJavascript(DNT_SHIM, null)
+        if (enabled) webView.evaluateJavascript(PageInjections.DNT_SCRIPT, null)
     }
 }
 

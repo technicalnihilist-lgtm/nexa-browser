@@ -605,14 +605,81 @@ class BrowserTabManager(
         val previous = appliedCss[tab.id]
         if (css.isBlank()) {
             if (previous == null) return
-            appliedCss.remove(tab.id)
-            runCatching { tab.webView.evaluateJavascript(PageInjections.clearScript(), null) }
+            // The memo is dropped only once the removal has actually been
+            // handed to the renderer. It used to be dropped first, so a
+            // delivery that failed left the memo saying "nothing installed"
+            // while the old stylesheet was still on the page, and the next
+            // settings emission skipped the clear it needed.
+            if (deliver(tab, PageInjections.clearScript())) appliedCss.remove(tab.id)
             return
         }
         if (previous == css) return
-        appliedCss[tab.id] = css
-        runCatching { tab.webView.evaluateJavascript(PageInjections.applyScript(css), null) }
+        // Recorded after the call, not before: a failed delivery used to be
+        // memoised as though it had worked, so that stylesheet never reached
+        // the page again for the life of the document.
+        if (deliver(tab, PageInjections.applyScript(css))) appliedCss[tab.id] = css
     }
+
+    /**
+     * Delivers both page extensions in one `evaluateJavascript` call.
+     *
+     * `onPageFinished` used to send the stylesheet and then the Do Not Track
+     * shim as two separate calls. Each one is a round trip to the renderer that
+     * queues behind the page's own scripts — and this is the moment just after
+     * the document finished, when a heavy page is still working. Composing both
+     * into a single script halves that: the page gets the same stylesheet and the
+     * same shim, one hop earlier.
+     *
+     * The memos ([appliedCss], [dntInjected]) are updated only for the parts that
+     * were actually sent and only after the call succeeded, so a delivery that
+     * failed is retried by the next page load or settings change instead of being
+     * remembered as done.
+     */
+    private fun applyPageExtensions(tab: BrowserTab) {
+        if (!tab.hasWebView) return
+        val settings = settingsProvider()
+        val css = PageInjections.cssFor(settings)
+        val previousCss = appliedCss[tab.id]
+        val cssAction = when {
+            css.isBlank() -> if (previousCss == null) CssAction.NONE else CssAction.CLEAR
+            previousCss == css -> CssAction.NONE
+            else -> CssAction.APPLY
+        }
+        val dntWanted = settings.doNotTrackEnabled
+        if (!dntWanted) dntInjected.remove(tab.id)
+        val dntAction = dntWanted && tab.id !in dntInjected
+        if (cssAction == CssAction.NONE && !dntAction) return
+
+        val script = PageInjections.pageScript(
+            css = when (cssAction) {
+                CssAction.CLEAR -> null
+                CssAction.APPLY -> css
+                CssAction.NONE -> ""
+            },
+            doNotTrack = dntAction
+        )
+        if (script.isEmpty()) return
+        if (!deliver(tab, script)) return
+
+        when (cssAction) {
+            CssAction.APPLY -> appliedCss[tab.id] = css
+            CssAction.CLEAR -> appliedCss.remove(tab.id)
+            CssAction.NONE -> Unit
+        }
+        if (dntAction) dntInjected.add(tab.id)
+    }
+
+    /** What a page load has to do with the injected stylesheet. */
+    private enum class CssAction { NONE, APPLY, CLEAR }
+
+    /**
+     * Hands [script] to the tab's renderer, reporting whether it was accepted.
+     *
+     * `evaluateJavascript` throws only when the WebView is already gone — which
+     * is exactly the case the memos must not be updated for.
+     */
+    private fun deliver(tab: BrowserTab, script: String): Boolean =
+        runCatching { tab.webView.evaluateJavascript(script, null) }.isSuccess
 
     /** tabId -> the page CSS currently installed in that tab's document. */
     private val appliedCss = HashMap<String, String>()
@@ -639,8 +706,9 @@ class BrowserTabManager(
             return
         }
         if (!dntInjected.add(tab.id)) return
-        runCatching { BrowserWebViewFactory.injectDoNotTrack(tab.webView, true) }
-            .onFailure { dntInjected.remove(tab.id) }
+        // Added optimistically above (so a re-entrant call cannot double-send),
+        // and taken back if the renderer refused the script.
+        if (!deliver(tab, PageInjections.DNT_SCRIPT)) dntInjected.remove(tab.id)
     }
 
     /** Toggles the desktop user agent on one tab and reloads it. */
@@ -751,9 +819,9 @@ class BrowserTabManager(
         val tab = tabById(tabId) ?: return
         // Page extensions are delivered once the document exists. Doing it here
         // rather than in the WebViewClient keeps the per-tab memo of what has
-        // already been injected in one place.
-        applyPageCss(tab, PageInjections.cssFor(settingsProvider()))
-        applyDoNotTrack(tab)
+        // already been injected in one place, and delivers the stylesheet and
+        // the Do Not Track shim as one script instead of two.
+        applyPageExtensions(tab)
         _pageFinished.tryEmit(tab.info)
     }
 

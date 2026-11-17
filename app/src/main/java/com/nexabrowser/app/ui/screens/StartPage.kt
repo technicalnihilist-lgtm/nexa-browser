@@ -155,8 +155,13 @@ fun StartPage(
         ) {
             if (showClock) {
                 item {
-                    val timeFmt = remember { SimpleDateFormat("h:mm", Locale.getDefault()) }
-                    val dateFmt = remember { SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()) }
+                    // Keyed on the locale: the activity handles a locale change
+                    // itself (see the manifest's configChanges), so it is not
+                    // recreated for one and a remember with no key kept the
+                    // clock formatted for the language the app started in.
+                    val locale = Locale.getDefault()
+                    val timeFmt = remember(locale) { SimpleDateFormat("h:mm", locale) }
+                    val dateFmt = remember(locale) { SimpleDateFormat("EEEE, d MMMM", locale) }
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally

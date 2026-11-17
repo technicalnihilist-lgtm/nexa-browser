@@ -236,26 +236,80 @@ object PageInjections {
     }
 
     /** JavaScript that installs (or clears) the injected style element. */
-    fun applyScript(css: String): String {
-        val escaped = css
-            .replace("\\", "\\\\")
-            .replace("'", "\\'")
-            .replace("\n", "\\n")
-            .replace("\r", "")
-        return "(function(){var id='$STYLE_ID';var el=document.getElementById(id);" +
-            "if(!el){el=document.createElement('style');el.id=id;" +
-            "(document.head||document.documentElement).appendChild(el);}" +
-            "el.textContent='$escaped';})();"
-    }
+    fun applyScript(css: String): String = pageScript(css, doNotTrack = false)
 
     /**
      * JavaScript that removes the injected style element again. Needed when the
      * last page extension is switched off: without it the previously injected
      * CSS would stay on the page until the next navigation.
      */
-    fun clearScript(): String =
-        "(function(){var el=document.getElementById('$STYLE_ID');" +
-            "if(el&&el.parentNode){el.parentNode.removeChild(el);}})();"
+    fun clearScript(): String = pageScript(css = null, doNotTrack = false)
+
+    /**
+     * The Do Not Track shim on its own, for the settings-change path.
+     *
+     * Lives here rather than in the WebView factory so that every piece of page
+     * script this app sends has one source, and so [pageScript] can compose it
+     * with the stylesheet without a second copy of the text.
+     */
+    val DNT_SCRIPT: String = WRAP_OPEN + DNT_BODY + WRAP_CLOSE
+
+    /**
+     * The single script that delivers both page extensions, or the empty string
+     * when there is nothing to deliver.
+     *
+     * A completed page load used to send two scripts — one for the stylesheet and
+     * one for the Do Not Track shim — i.e. two `evaluateJavascript` calls, each a
+     * round trip to the renderer that has to queue behind whatever the page's own
+     * scripts are doing. That is the moment right after `onPageFinished`, when a
+     * heavy page is still busy, so the second round trip was pure latency on the
+     * one path where the main thread and the renderer are both loaded. Both
+     * bodies are now composed into one IIFE and sent once: same two effects on
+     * the page, one hop instead of two.
+     *
+     * @param css the stylesheet to install, `null` to remove the one already
+     *   installed, or blank when this page needs no stylesheet at all.
+     * @param doNotTrack true to include the Do Not Track shim.
+     */
+    fun pageScript(css: String?, doNotTrack: Boolean): String {
+        val style = when {
+            css == null -> CLEAR_BODY
+            css.isBlank() -> null
+            else -> STYLE_BODY_HEAD + "el.textContent='" + escapeForJs(css) + "';"
+        }
+        if (!doNotTrack) return if (style == null) "" else WRAP_OPEN + style + WRAP_CLOSE
+        // The shim goes first: it only defines properties on `navigator`, so it
+        // cannot be affected by the stylesheet work that follows it.
+        return WRAP_OPEN + DNT_BODY + (style ?: "") + WRAP_CLOSE
+    }
+
+    /**
+     * Escapes a stylesheet for a single-quoted JavaScript string literal.
+     *
+     * Backslashes first, or the escapes added afterwards would be escaped again.
+     */
+    private fun escapeForJs(css: String): String = css
+        .replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("\n", "\\n")
+        .replace("\r", "")
+
+    private const val WRAP_OPEN = "(function(){"
+    private const val WRAP_CLOSE = "})();"
+
+    /** Finds (or creates) the injected `<style>` element and leaves it in `el`. */
+    private const val STYLE_BODY_HEAD = "var id='$STYLE_ID';var el=document.getElementById(id);" +
+        "if(!el){el=document.createElement('style');el.id=id;" +
+        "(document.head||document.documentElement).appendChild(el);}"
+
+    /** Removes the injected `<style>` element if there is one. */
+    private const val CLEAR_BODY = "var el=document.getElementById('$STYLE_ID');" +
+        "if(el&&el.parentNode){el.parentNode.removeChild(el);}"
+
+    /** Exposes a Do Not Track signal to page scripts. */
+    private const val DNT_BODY =
+        "try{Object.defineProperty(navigator,'doNotTrack',{get:function(){return '1'},configurable:true});" +
+            "Object.defineProperty(navigator,'msDoNotTrack',{get:function(){return '1'},configurable:true});}catch(e){}"
 
     /** True for hosts that must never be upgraded to HTTPS. */
     fun isLocalHost(host: String?): Boolean {
