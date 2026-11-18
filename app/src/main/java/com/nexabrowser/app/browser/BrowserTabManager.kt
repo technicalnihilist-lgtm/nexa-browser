@@ -377,6 +377,42 @@ class BrowserTabManager(
         }
     }
 
+    /**
+     * True while an in-app screen covers the browser surface.
+     *
+     * The browser is one destination inside a single Activity: Settings,
+     * History, Bookmarks, Downloads, the reading list, extensions and the tab
+     * overview are composables drawn *instead of* the browser surface, not new
+     * Activities. [onHostStopped] therefore never runs for them — the Activity is
+     * still resumed — and the page stayed the "active" tab for the whole time it
+     * was hidden behind one of those screens: full RENDERER_PRIORITY_IMPORTANT,
+     * timers running, CSS animations and requestAnimationFrame still firing, and
+     * video still decoding, for a page nobody can see. Reading a long article,
+     * then spending a minute in Settings, cost a minute of that page's battery.
+     *
+     * The state is held here rather than derived from the UI so that every path
+     * into [syncTabVisibility] — selecting a tab from the overview, closing the
+     * active one, creating a new tab from the menu — agrees about it, and so
+     * that returning to the browser resumes the tab through exactly the same
+     * call that a tab switch uses. Nothing user-visible changes: the page keeps
+     * its scroll position, its history and its state, because onPause/onResume
+     * park and restart the renderer rather than reloading the document.
+     */
+    private var chromeObscured = false
+
+    /**
+     * An in-app screen has covered ([obscured] = true) or uncovered the browser.
+     *
+     * Only the active tab is affected — every other tab is already paused — and
+     * the call is idempotent, so the ViewModel can forward every screen change
+     * without tracking the previous one.
+     */
+    fun setChromeObscured(obscured: Boolean) {
+        if (chromeObscured == obscured) return
+        chromeObscured = obscured
+        syncTabVisibility()
+    }
+
     /** The host Activity is visible again: only the active tab resumes. */
     fun onHostStarted() {
         hostVisible = true
@@ -400,7 +436,10 @@ class BrowserTabManager(
     private fun syncTabVisibility() {
         val active = _activeTabId.value
         _tabs.value.forEach { tab ->
-            val visible = tab.id == active
+            // An in-app screen on top of the browser (Settings, History, the tab
+            // overview, …) covers the page completely, so the active tab is no
+            // more on screen than a background one is. See [setChromeObscured].
+            val visible = tab.id == active && !chromeObscured
             if (rendererVisible[tab.id] == visible) return@forEach
             // A background tab that has never been shown has no WebView to
             // demote, and touching it here would construct one — which is the

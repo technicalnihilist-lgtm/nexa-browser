@@ -309,20 +309,44 @@ modest heap, `org.gradle.workers.max`, and in-process Kotlin compilation.
 
 ## Tests
 
-**Unit tests (run, passing — 70 tests, 0 failures):**
+**Unit tests (run, passing — 278 tests, 0 failures):**
 
 ```
 ./gradlew :app:testDebugUnitTest
-com.nexabrowser.app.util.UrlUtilsTest                 18 tests, 0 failures
-com.nexabrowser.app.util.FaviconSizingTest             7 tests, 0 failures
-com.nexabrowser.app.util.FaviconPathCacheTest          7 tests, 0 failures
-com.nexabrowser.app.domain.SearchEngineTest            6 tests, 0 failures
-com.nexabrowser.app.browser.RendererRecoveryTest       6 tests, 0 failures
+com.nexabrowser.app.browser.AdBlockPolicyTest           4 tests, 0 failures
+com.nexabrowser.app.browser.BlocklistIndexTest          9 tests, 0 failures
+com.nexabrowser.app.browser.BlocklistMatchTest          8 tests, 0 failures
+com.nexabrowser.app.browser.FaviconDedupeTest          11 tests, 0 failures
+com.nexabrowser.app.browser.FullscreenSessionTest       5 tests, 0 failures
+com.nexabrowser.app.browser.HostDecisionCacheTest       7 tests, 0 failures
+com.nexabrowser.app.browser.HttpsUpgradeTest            8 tests, 0 failures
+com.nexabrowser.app.browser.LoadOutcomeTest             6 tests, 0 failures
+com.nexabrowser.app.browser.MemoryTrimTest              6 tests, 0 failures
+com.nexabrowser.app.browser.PageErrorTest               2 tests, 0 failures
+com.nexabrowser.app.browser.PageInjectionsTest         17 tests, 0 failures
+com.nexabrowser.app.browser.ProgressGateTest            8 tests, 0 failures
+com.nexabrowser.app.browser.ReloadTargetTest            5 tests, 0 failures
+com.nexabrowser.app.browser.RendererRecoveryTest        6 tests, 0 failures
+com.nexabrowser.app.browser.SessionWriteTest            9 tests, 0 failures
+com.nexabrowser.app.browser.TabChromeStateTest          5 tests, 0 failures
+com.nexabrowser.app.browser.TabLookupTest               7 tests, 0 failures
+com.nexabrowser.app.browser.TabRestorePlanTest          5 tests, 0 failures
+com.nexabrowser.app.browser.TabSelectionTest            5 tests, 0 failures
+com.nexabrowser.app.browser.WebViewSettingsDiffTest     9 tests, 0 failures
+com.nexabrowser.app.data.repository.DownloadActiveTest  5 tests, 0 failures
 com.nexabrowser.app.data.repository.DownloadProgressRowTest  6 tests, 0 failures
-com.nexabrowser.app.ui.ScrollAccumulatorTest           6 tests, 0 failures
-com.nexabrowser.app.browser.TabSelectionTest           5 tests, 0 failures
-com.nexabrowser.app.browser.WebViewSettingsDiffTest    5 tests, 0 failures
-com.nexabrowser.app.data.repository.DownloadActiveTest 4 tests, 0 failures
+com.nexabrowser.app.data.repository.HistoryDedupeTest  10 tests, 0 failures
+com.nexabrowser.app.data.repository.TopSitesMergeTest   7 tests, 0 failures
+com.nexabrowser.app.domain.SearchEngineTest             6 tests, 0 failures
+com.nexabrowser.app.ui.ScrollAccumulatorTest            6 tests, 0 failures
+com.nexabrowser.app.util.ClockTickTest                  5 tests, 0 failures
+com.nexabrowser.app.util.DateLabelsTest                 7 tests, 0 failures
+com.nexabrowser.app.util.FaviconNamingTest             10 tests, 0 failures
+com.nexabrowser.app.util.FaviconPathCacheTest          10 tests, 0 failures
+com.nexabrowser.app.util.FaviconPruningTest             6 tests, 0 failures
+com.nexabrowser.app.util.FaviconSizingTest             14 tests, 0 failures
+com.nexabrowser.app.util.HistoryGroupingTest            7 tests, 0 failures
+com.nexabrowser.app.util.UrlUtilsTest                  37 tests, 0 failures
 ```
 
 They cover the address-bar resolver (URL vs search, host:port, IP, localhost,

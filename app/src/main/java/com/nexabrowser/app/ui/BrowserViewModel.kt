@@ -300,7 +300,22 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     // ------------------------------------------------------------- UI state
 
-    fun setScreen(screen: NexaScreen) = _uiState.update { it.copy(screen = screen, menuOpen = false) }
+    /**
+     * Shows one of the in-app screens, or returns to the browser.
+     *
+     * Every destination here is drawn *instead of* the browser surface inside
+     * this one Activity, so leaving the browser does not stop the Activity and
+     * [onHostStopped] never runs: the page behind Settings kept its renderer at
+     * full priority with timers, animations and video running for as long as the
+     * user stayed away. The tab manager is told which side of the browser the
+     * user is on so the page is parked exactly as it is when another tab is
+     * selected, and resumed when the browser comes back. The page itself is
+     * untouched — same document, same scroll position, same history.
+     */
+    fun setScreen(screen: NexaScreen) {
+        _uiState.update { it.copy(screen = screen, menuOpen = false) }
+        tabManager.setChromeObscured(screen != NexaScreen.BROWSER)
+    }
     fun openMenu() = _uiState.update { it.copy(menuOpen = true) }
     fun closeMenu() = _uiState.update { it.copy(menuOpen = false) }
     fun consumeMessage() = _uiState.update { it.copy(message = null) }
