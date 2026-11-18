@@ -59,6 +59,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -169,6 +170,12 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     private val _isBookmarked = MutableStateFlow(false)
     val isBookmarked: StateFlow<Boolean> = _isBookmarked.asStateFlow()
 
+    /**
+     * The text size the slider last asked for; see [setTextZoom]. Null until the
+     * user first touches the control.
+     */
+    private val textZoomRequests = MutableStateFlow<Int?>(null)
+
     private var pendingPermissionRequest: PermissionRequest? = null
     private var pendingGeoCallback: GeolocationPermissions.Callback? = null
     private var pendingGeoOrigin: String? = null
@@ -190,6 +197,15 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         downloadRepository.startTracking(viewModelScope)
+
+        // The one writer for the text-size preference. Collecting a conflated
+        // StateFlow means a drag of the slider cannot queue a write per pointer
+        // move; see [setTextZoom].
+        viewModelScope.launch {
+            textZoomRequests.filterNotNull().collect { zoom ->
+                runCatching { dataStore.setTextZoom(zoom) }
+            }
+        }
 
         // Apply settings to live WebViews whenever they change.
         viewModelScope.launch {
@@ -644,7 +660,30 @@ class BrowserViewModel(application: Application) : AndroidViewModel(application)
     fun setHomepage(url: String) = launchWrite { dataStore.setHomepage(url) }
     fun setTheme(mode: ThemeMode) = launchWrite { dataStore.setTheme(mode) }
     fun setNewTabBehavior(behavior: NewTabBehavior) = launchWrite { dataStore.setNewTabBehavior(behavior) }
-    fun setTextZoom(zoom: Int) = launchWrite { dataStore.setTextZoom(zoom) }
+    /**
+     * Records the text size picked on the settings slider.
+     *
+     * The slider is a continuous control: it reports a value on every pointer
+     * move of a drag, and it snaps to its steps, so a slow drag reports the same
+     * percentage many times over. Each of those used to launch its own
+     * coroutine and write the preference, and a preference write is not cheap:
+     * DataStore rewrites its file, the settings flow re-emits, and the tab
+     * manager walks every open tab pushing the new `textZoom` into its
+     * `WebView` (one provider call per tab, on the main thread). Dragging the
+     * slider across its range therefore queued dozens of identical writes and
+     * dozens of per-tab settings pushes for a value the user had not finished
+     * choosing.
+     *
+     * The requests go through a conflated [MutableStateFlow] instead, so the
+     * writer sees at most one pending value and never sees the same value twice
+     * in a row — a `StateFlow` only emits when the value actually differs. The
+     * latest value is always delivered, so letting go of the slider still
+     * persists exactly what it shows; nothing about the control, the percentage
+     * it displays or the resulting text size changes.
+     */
+    fun setTextZoom(zoom: Int) {
+        textZoomRequests.value = zoom
+    }
     fun setDesktopByDefault(enabled: Boolean) = launchWrite { dataStore.setDesktopByDefault(enabled) }
     fun setJavaScriptEnabled(enabled: Boolean) = launchWrite { dataStore.setJavaScriptEnabled(enabled) }
     fun setPopupsEnabled(enabled: Boolean) = launchWrite { dataStore.setPopupsEnabled(enabled) }
