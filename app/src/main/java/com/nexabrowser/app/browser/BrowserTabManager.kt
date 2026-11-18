@@ -771,8 +771,10 @@ class BrowserTabManager(
         if (!blank) {
             lastProgress[tabId] = START_PROGRESS
             // A new document is the one thing that may start a load again after
-            // the user stopped one; see ProgressGate.
+            // the user stopped one, or after the previous one finished; see
+            // ProgressGate.
             stoppedLoads.remove(tabId)
+            finishedLoads.remove(tabId)
             appliedCss.remove(tabId)
             dntInjected.remove(tabId)
             faviconSeen.remove(tabId)
@@ -796,7 +798,15 @@ class BrowserTabManager(
 
     override fun onPageFinished(tabId: String, url: String) {
         val blank = url == "about:blank"
-        if (!blank) lastProgress[tabId] = 100
+        if (!blank) {
+            lastProgress[tabId] = 100
+            // The document's load is over. Recorded so that a late tick from it
+            // cannot flip the finished tab back to "loading" — the same hazard
+            // [stoppedLoads] covers for a load the user stopped, and the same
+            // fix. Cleared by onPageStarted, so the next document loads
+            // normally.
+            finishedLoads.add(tabId)
+        }
         updateTab(tabId) {
             it.copy(
                 isLoading = false,
@@ -842,6 +852,22 @@ class BrowserTabManager(
     private val stoppedLoads = HashSet<String>()
 
     /**
+     * Tabs whose current document has finished loading.
+     *
+     * The sibling of [stoppedLoads], and for the same reason: `onPageFinished`
+     * publishes 100, but the throttle in [ProgressGate] accepts any jump of five
+     * points or more, so a late tick of 80 from a document that has already
+     * finished was published — and `onProgress` writes `isLoading = progress <
+     * 100`, which put the tab back into "loading". The toolbar offered "stop"
+     * for a page that was fully loaded and the tab strip drew a spinner over it.
+     * Only a new document may start a load again, so a finished load is recorded
+     * here and outranks the throttle rule.
+     *
+     * Only read and written on the main thread.
+     */
+    private val finishedLoads = HashSet<String>()
+
+    /**
      * The user pressed stop on a page that was still loading.
      *
      * WebView does not reliably deliver `onPageFinished` for a cancelled load,
@@ -862,7 +888,8 @@ class BrowserTabManager(
     }
 
     override fun onProgress(tabId: String, progress: Int) {
-        if (!ProgressGate.isMeaningful(lastProgress[tabId], stoppedLoads.contains(tabId), progress)) return
+        val loadOver = stoppedLoads.contains(tabId) || finishedLoads.contains(tabId)
+        if (!ProgressGate.isMeaningful(lastProgress[tabId], loadOver, progress)) return
         lastProgress[tabId] = progress
         updateTab(tabId) { it.copy(progress = progress, isLoading = progress < 100) }
     }
@@ -1037,6 +1064,7 @@ class BrowserTabManager(
         runCatching { tab.webView.destroy() }
         lastProgress.remove(tab.id)
         stoppedLoads.remove(tab.id)
+        finishedLoads.remove(tab.id)
         // A rebuild loads the tab's url on the fresh WebView, so any deferral
         // held for the old one is spent: keeping it would load the page twice.
         pendingLoads.remove(tab.id)
@@ -1099,6 +1127,7 @@ class BrowserTabManager(
     private fun detach(tab: BrowserTab) {
         lastProgress.remove(tab.id)
         stoppedLoads.remove(tab.id)
+        finishedLoads.remove(tab.id)
         pendingLoads.remove(tab.id)
         rendererVisible.remove(tab.id)
         appliedCss.remove(tab.id)
@@ -1229,6 +1258,7 @@ class BrowserTabManager(
         _activeTabId.value = null
         lastProgress.clear()
         stoppedLoads.clear()
+        finishedLoads.clear()
         pendingLoads.clear()
         rendererVisible.clear()
         appliedCss.clear()
